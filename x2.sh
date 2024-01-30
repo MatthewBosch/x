@@ -8,7 +8,7 @@ wget -qO- https://get.docker.com/ | sh
 cd ${SATURN_HOME:-$HOME}
     cat > .env<< EOF
 SATURN_NETWORK="main"
-FIL_WALLET_ADDRESS="f1p5nzw4fgcredrw3jinxzc5tjucrqdcgogbtwk2y"
+FIL_WALLET_ADDRESS="f1k6yefzhixb2zm3nv54hlszbzgpfuy6zasaivcry"
 NODE_OPERATOR_EMAIL="x@xscp.org"
 SPEEDTEST_SERVER_CONFIG=""
 SATURN_HOME=""
