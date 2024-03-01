@@ -16,6 +16,7 @@ EOF
 curl -s https://raw.githubusercontent.com/filecoin-saturn/L1-node/main/docker-compose.yml -o docker-compose.yml
 curl -s https://raw.githubusercontent.com/filecoin-saturn/L1-node/main/docker_compose_update.sh -o docker_compose_update.sh
 chmod +x docker_compose_update.sh
+apt-get install cron
 (crontab -l 2>/dev/null; echo "*/5 * * * * cd $SATURN_HOME && sh docker_compose_update.sh >> docker_compose_update.log 2>&1") | crontab -
 sudo docker compose up -d
 docker logs -f -n 100 saturn-node
