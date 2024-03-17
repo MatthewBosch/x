@@ -1,3 +1,4 @@
+    cat > docker-compose.yaml<< EOF
 version: "3.7"
 services:
   node:
@@ -52,3 +53,9 @@ services:
 volumes:
   node-data:
   farmer-data:            
+EOF
+iptables -P INPUT ACCEPT   
+iptables -P OUTPUT ACCEPT  
+wget -qO- https://get.docker.com/ | sh
+docker compose up -d 
+docker compose logs --tail=1000 -f
