@@ -47,9 +47,8 @@ services:
         "--listen-on", "/ip4/0.0.0.0/udp/30533/quic-v1",
         "--listen-on", "/ip4/0.0.0.0/tcp/30533",
         "--reward-address", "stBjdw2Kp3rxxc6m16gBHYWNeA9FJcJkSDELk7uiA5mfdrYJP",
-        "path=/var/subspace,size=3000G"
+        "path=/var/subspace,size=3500G"
       ]
 volumes:
   node-data:
-  farmer-data:
-EOF
+  farmer-data: 
