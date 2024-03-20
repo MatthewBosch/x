@@ -51,5 +51,5 @@ services:
       ]
 volumes:
   node-data:
-  farmer-data:            
+  farmer-data:
 EOF
