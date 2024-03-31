@@ -9,7 +9,7 @@ cd ${SATURN_HOME:-$HOME}
     cat > .env<< EOF
 SATURN_NETWORK="main"
 FIL_WALLET_ADDRESS="f1ckvwtrakxcrobakeu6up3lolio74qhisnj6sgoy"
-NODE_OPERATOR_EMAIL="x@xscp.org"
+NODE_OPERATOR_EMAIL="yoshihirokatayama1961@gmail.com"
 SPEEDTEST_SERVER_CONFIG=""
 SATURN_HOME=""
 EOF
