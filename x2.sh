@@ -10,7 +10,7 @@ cd ${SATURN_HOME:-$HOME}
 SATURN_NETWORK="main"
 FIL_WALLET_ADDRESS="f1k6yefzhixb2zm3nv54hlszbzgpfuy6zasaivcry"
 NODE_OPERATOR_EMAIL="x@xscp.org"
-SPEEDTEST_SERVER_CONFIG=""
+SPEEDTEST_SERVER_CONFIG="--server-id=14340"
 SATURN_HOME=""
 EOF
 curl -s https://raw.githubusercontent.com/filecoin-saturn/L1-node/main/docker-compose.yml -o docker-compose.yml
