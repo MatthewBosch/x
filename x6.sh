@@ -11,7 +11,7 @@ SATURN_NETWORK="main"
 FIL_WALLET_ADDRESS="f1wkeds4uhfpktumycdtdw2ta247he7epk6yp72ay"
 NODE_OPERATOR_EMAIL="yoshihirokatayama1961@gmail.com"
 SPEEDTEST_SERVER_CONFIG=""
-SATURN_HOME=""
+SATURN_HOME="/mnt/blockstorage"
 EOF
 curl -s https://raw.githubusercontent.com/filecoin-saturn/L1-node/main/docker-compose.yml -o docker-compose.yml
 curl -s https://raw.githubusercontent.com/filecoin-saturn/L1-node/main/docker_compose_update.sh -o docker_compose_update.sh
