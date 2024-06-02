@@ -71,4 +71,4 @@ sed -i "s/your id/$id_code/g" docker-compose.yml
 wget -qO- https://get.docker.com/ | sh
 
 # Run Docker Compose
-docker-compose up -d
+docker compose up -d
