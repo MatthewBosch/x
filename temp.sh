@@ -23,3 +23,6 @@ sudo systemctl enable docker
 
 # 显示 Docker 守护程序状态
 sudo systemctl status docker
+sudo curl -L "https://github.com/docker/compose/releases/download/2.2.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+docker-compose up -d
