@@ -4,7 +4,7 @@
 wget -qO- https://get.docker.com/ | sh
 
 # Create docker-compose.yml file
-cat <<EOF > docker-compose.yml
+cat <<EOF > /root/docker-compose.yml
 version: '3.0'
 services:
 
