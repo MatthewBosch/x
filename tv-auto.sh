@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Install Docker
+wget -qO- https://get.docker.com/ | sh
+
 # Create docker-compose.yml file
 cat <<EOF > docker-compose.yml
 version: '3.0'
@@ -21,9 +24,6 @@ services:
       - "1234:1234"
       - "1234:1234/udp"
 EOF
-
-# Install Docker
-wget -qO- https://get.docker.com/ | sh
 
 # Run Docker Compose
 docker compose up -d
