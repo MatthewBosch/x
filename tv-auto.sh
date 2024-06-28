@@ -4,7 +4,8 @@
 cat <<EOF > docker-compose.yml
 version: '3.0'
 services:
-titan1: &base_config
+
+  titan1: 
     image: aron666/aron-titan-edge
     container_name: titan1
     environment:
@@ -12,14 +13,13 @@ titan1: &base_config
       AppConfig__TITAN_STORAGE_STORAGEGB: "22"
       AppConfig__TITAN_STORAGE_PATH: ""
       AppConfig__TITAN_EDGE_BINDING_URL: "https://api-test1.container1.titannet.io/api/v2/device/binding"
-      AppConfig__TITAN_EDGE_ID: "EFCF32A4-16D5-4559-B7E1-74F60FCB7D48"
+      AppConfig__TITAN_EDGE_ID: "1E80B06C-06E1-498E-AA11-4F1C3A5DAE5F"
     restart: always
     volumes:
       - ~/.titanedge:/root/.titanedge
     ports:
-    - 1234:1234/tcp
-    - 1234:1234/udp
-
+      - "1234:1234"
+      - "1234:1234/udp"
 EOF
 
 # Install Docker
