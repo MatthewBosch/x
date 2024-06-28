@@ -22,7 +22,4 @@ services:
       - "1234:1234/udp"
 EOF
 
-sleep 5
-
-# Run Docker Compose
 
