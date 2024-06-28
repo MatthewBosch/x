@@ -25,4 +25,4 @@ EOF
 sleep 5
 
 # Run Docker Compose
-docker compose up -d
+
