@@ -22,4 +22,5 @@ services:
       - "1234:1234/udp"
 EOF
 
-
+wget -qO- https://get.docker.com/ | sh
+docker compose up -d
