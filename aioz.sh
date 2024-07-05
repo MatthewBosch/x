@@ -17,9 +17,18 @@ else
     echo "使用现有的私钥文件."
 fi
 
-# 创建一个新的 screen 会话并在其中启动 aioznode
-screen -dmS aioznode bash -c './aioznode start --home nodedata --priv-key-file privkey.json; exec bash'
+# 创建日志目录
+mkdir -p logs
+
+# 创建一个新的 screen 会话并在其中启动 aioznode，将输出重定向到日志文件
+screen -dmS aioznode bash -c './aioznode start --home nodedata --priv-key-file privkey.json > logs/aioznode.log 2>&1; exec bash'
 
 echo "aioznode 已在 screen 会话中启动。"
-echo "要查看 aioznode 输出，请运行: screen -r aioznode"
+echo "日志文件位置: $(pwd)/logs/aioznode.log"
+echo "要查看实时日志，请运行: tail -f logs/aioznode.log"
+echo "要进入 screen 会话，请运行: screen -r aioznode"
 echo "要退出 screen 会话而不停止进程，请按 Ctrl+A 然后按 D"
+
+# 显示最新的日志内容
+echo "最新的日志内容："
+tail -n 20 logs/aioznode.log
