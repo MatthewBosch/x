@@ -1,7 +1,7 @@
 #!/bin/bash
 cd /root/apphub-linux-amd64
 ./apphub status
-sleep 15
+sleep 20
 ./apphub status
 sudo ./apps/gaganode/gaganode config set --token=mgmxwoxomweqsoltac31d1c1adf6b598
 ./apphub restart
