@@ -1,23 +1,5 @@
 #!/bin/bash
 
-# 函数：读取或请求输入
-get_input() {
-    local var_name=$1
-    local prompt=$2
-    local value
-
-    if [[ -f ~/.scout_config ]]; then
-        value=$(grep "^$var_name=" ~/.scout_config | cut -d '=' -f2)
-    fi
-
-    if [[ -z "$value" && "$BYPASS" != "true" ]]; then
-        read -p "$prompt" value
-        echo "$var_name=$value" >> ~/.scout_config
-    fi
-
-    echo "$value"
-}
-
 # 检查是否有bypass参数
 BYPASS="false"
 if [[ "$1" == "bypass" ]]; then
@@ -26,24 +8,24 @@ fi
 
 if [[ "$BYPASS" != "true" ]]; then
     # 询问用户输入 12 个 SCOUT_UID
-    SCOUT_UIDS=()
-    for i in {1..12}; do
-        uid=$(get_input "SCOUT_UID_$i" "请输入第 $i 个 SCOUT_UID：")
-        SCOUT_UIDS+=("$uid")
+    echo "请输入 12 个 SCOUT_UID，每个用空格分隔："
+    read -a SCOUT_UIDS
+    for i in {0..11}; do
+        echo "SCOUT_UID_$((i+1))=${SCOUT_UIDS[$i]}" >> ~/.scout_config
     done
 
     # 询问用户输入 12 个 WEBHOOK_API_KEY
-    WEBHOOK_API_KEYS=()
-    for i in {1..12}; do
-        key=$(get_input "WEBHOOK_API_KEY_$i" "请输入第 $i 个 WEBHOOK_API_KEY：")
-        WEBHOOK_API_KEYS+=("$key")
+    echo "请输入 12 个 WEBHOOK_API_KEY，每个用空格分隔："
+    read -a WEBHOOK_API_KEYS
+    for i in {0..11}; do
+        echo "WEBHOOK_API_KEY_$((i+1))=${WEBHOOK_API_KEYS[$i]}" >> ~/.scout_config
     done
 
     # 询问用户输入 12 个 GROQ_API_KEY
-    GROQ_API_KEYS=()
-    for i in {1..12}; do
-        key=$(get_input "GROQ_API_KEY_$i" "请输入第 $i 个 GROQ_API_KEY：")
-        GROQ_API_KEYS+=("$key")
+    echo "请输入 12 个 GROQ_API_KEY，每个用空格分隔："
+    read -a GROQ_API_KEYS
+    for i in {0..11}; do
+        echo "GROQ_API_KEY_$((i+1))=${GROQ_API_KEYS[$i]}" >> ~/.scout_config
     done
 else
     # 从配置文件读取所有值
