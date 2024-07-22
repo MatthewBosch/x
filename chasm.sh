@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# 函数：读取多行输入
+read_multiline() {
+    local arr=()
+    for i in {1..12}; do
+        read -r line
+        arr+=("$line")
+    done
+    echo "${arr[@]}"
+}
+
 # 检查是否有bypass参数
 BYPASS="false"
 if [[ "$1" == "bypass" ]]; then
@@ -8,22 +18,22 @@ fi
 
 if [[ "$BYPASS" != "true" ]]; then
     # 询问用户输入 12 个 SCOUT_UID
-    echo "请输入 12 个 SCOUT_UID，每个用空格分隔："
-    read -a SCOUT_UIDS
+    echo "请输入 12 个 SCOUT_UID，每个一行："
+    SCOUT_UIDS=($(read_multiline))
     for i in {0..11}; do
         echo "SCOUT_UID_$((i+1))=${SCOUT_UIDS[$i]}" >> ~/.scout_config
     done
 
     # 询问用户输入 12 个 WEBHOOK_API_KEY
-    echo "请输入 12 个 WEBHOOK_API_KEY，每个用空格分隔："
-    read -a WEBHOOK_API_KEYS
+    echo "请输入 12 个 WEBHOOK_API_KEY，每个一行："
+    WEBHOOK_API_KEYS=($(read_multiline))
     for i in {0..11}; do
         echo "WEBHOOK_API_KEY_$((i+1))=${WEBHOOK_API_KEYS[$i]}" >> ~/.scout_config
     done
 
     # 询问用户输入 12 个 GROQ_API_KEY
-    echo "请输入 12 个 GROQ_API_KEY，每个用空格分隔："
-    read -a GROQ_API_KEYS
+    echo "请输入 12 个 GROQ_API_KEY，每个一行："
+    GROQ_API_KEYS=($(read_multiline))
     for i in {0..11}; do
         echo "GROQ_API_KEY_$((i+1))=${GROQ_API_KEYS[$i]}" >> ~/.scout_config
     done
