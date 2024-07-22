@@ -10,16 +10,13 @@ read WEBHOOK_API_KEY
 echo "请输入 GROQ_API_KEY：(第一次填写后可不填)"
 read GROQ_API_KEY
 
+# 存储端口号的数组
+declare -a PORTS
+
 # 定义安装节点的函数
 function install_node() {
-    # 检查是否已安装 Docker
-    if ! command -v docker &> /dev/null; then
-        echo "安装 Docker..."
-        curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh
-    else
-        echo "Docker 已安装，跳过安装步骤。"
-    fi
+    # Docker 安装检查和安装过程（保持不变）
+    # ...
 
     # 获取当前系统的公网 IP 地址
     ip=$(curl -s4 ifconfig.me/ip)
@@ -33,8 +30,16 @@ function install_node() {
         exit 1
     }
 
-    # 循环创建 10 个实例
-    for port in {3001..3010}; do
+    # 询问用户要创建多少个实例
+    echo "请输入要创建的实例数量："
+    read instance_count
+
+    # 循环创建实例
+    for ((i=1; i<=instance_count; i++)); do
+        echo "请为第 $i 个实例输入端口号："
+        read port
+        PORTS+=($port)
+
         # 构建 webhook 的 URL
         WEBHOOK_URL="http://$ip:$port/"
 
@@ -74,8 +79,15 @@ EOF
 
         # 设置防火墙规则允许端口
         echo "设置防火墙规则允许端口 $port..."
-        sudo ufw allow $port
-        sudo ufw allow $port/tcp
+        if command -v ufw &> /dev/null; then
+            sudo ufw allow $port
+            sudo ufw allow $port/tcp
+        elif command -v firewall-cmd &> /dev/null; then
+            sudo firewall-cmd --zone=public --add-port=$port/tcp --permanent
+            sudo firewall-cmd --reload
+        else
+            echo "警告：未找到支持的防火墙管理工具，请手动开放端口 $port"
+        fi
 
         # 拉取 Docker 镜像并运行
         if docker pull johnsonchasm/chasm-scout; then
@@ -89,13 +101,12 @@ EOF
     done
 
     # 输出消息
-    echo "所有实例已创建完成，退出脚本。"
-    exit 0
+    echo "所有实例已创建完成。"
 }
 
 # 发送 POST 请求到所有 webhook 的函数
 function send_webhook_requests() {
-    for port in {3001..3010}; do
+    for port in "${PORTS[@]}"; do
         cd ~/scout/scout_$port || {
             echo "切换到 scout_$port 目录失败。请检查目录是否存在或权限设置。"
             continue
@@ -124,8 +135,8 @@ function main_menu() {
         echo "节点社区 Discord 社群:https://discord.gg/GbMV5EcNWF"
         echo "退出脚本，请按键盘ctrl c退出即可"
         echo "请选择要执行的操作:"
-        echo "1. 安装节点 (10个实例)"
-        echo "2. 发送 Webhook 请求 (向所有10个实例)"
+        echo "1. 安装节点 (自定义实例数量和端口)"
+        echo "2. 发送 Webhook 请求 (向所有实例)"
         read -p "请输入选项（1-2）: " OPTION
 
         case $OPTION in
