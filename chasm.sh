@@ -1,14 +1,21 @@
 #!/bin/bash
 
-# 询问用户输入 SCOUT_UID、WEBHOOK_API_KEY 和 GROQ_API_KEY
+# 询问用户输入 SCOUT_UID 和 WEBHOOK_API_KEY
 echo "请输入 SCOUT_UID：(第一次填写后可不填)"
 read SCOUT_UID
 
 echo "请输入 WEBHOOK_API_KEY：(第一次填写后可不填)"
 read WEBHOOK_API_KEY
 
-echo "请输入 GROQ_API_KEY：(第一次填写后可不填)"
-read GROQ_API_KEY
+# 创建一个数组来存储 GROQ_API_KEY
+GROQ_API_KEYS=()
+
+# 询问用户输入 10 个 GROQ_API_KEY
+for i in {1..10}; do
+    echo "请输入第 $i 个 GROQ_API_KEY："
+    read key
+    GROQ_API_KEYS+=("$key")
+done
 
 # 定义安装节点的函数
 function install_node() {
@@ -34,7 +41,8 @@ function install_node() {
     }
 
     # 循环创建 10 个实例
-    for port in {3001..3010}; do
+    for i in {0..9}; do
+        port=$((3001 + i))
         # 构建 webhook 的 URL
         WEBHOOK_URL="http://$ip:$port/"
 
@@ -61,7 +69,7 @@ WEBHOOK_URL=$WEBHOOK_URL
 # Chosen Provider (groq, openai)
 PROVIDERS=groq
 MODEL=gemma2-9b-it
-GROQ_API_KEY=$GROQ_API_KEY
+GROQ_API_KEY=${GROQ_API_KEYS[$i]}
 
 # Optional
 OPENROUTER_API_KEY=$OPENROUTER_API_KEY
