@@ -25,8 +25,12 @@ if [[ "$1" == "bypass" ]]; then
 fi
 
 if [[ "$BYPASS" != "true" ]]; then
-    # 询问用户输入 SCOUT_UID
-    SCOUT_UID=$(get_input "SCOUT_UID" "请输入 SCOUT_UID：")
+    # 询问用户输入 12 个 SCOUT_UID
+    SCOUT_UIDS=()
+    for i in {1..12}; do
+        uid=$(get_input "SCOUT_UID_$i" "请输入第 $i 个 SCOUT_UID：")
+        SCOUT_UIDS+=("$uid")
+    done
 
     # 询问用户输入 12 个 WEBHOOK_API_KEY
     WEBHOOK_API_KEYS=()
@@ -43,7 +47,7 @@ if [[ "$BYPASS" != "true" ]]; then
     done
 else
     # 从配置文件读取所有值
-    SCOUT_UID=$(grep "^SCOUT_UID=" ~/.scout_config | cut -d '=' -f2)
+    SCOUT_UIDS=($(grep "^SCOUT_UID_" ~/.scout_config | cut -d '=' -f2))
     WEBHOOK_API_KEYS=($(grep "^WEBHOOK_API_KEY_" ~/.scout_config | cut -d '=' -f2))
     GROQ_API_KEYS=($(grep "^GROQ_API_KEY_" ~/.scout_config | cut -d '=' -f2))
 fi
@@ -92,7 +96,7 @@ LOGGER_LEVEL=debug
 # Chasm
 ORCHESTRATOR_URL=https://orchestrator.chasm.net
 SCOUT_NAME=myscout_$port
-SCOUT_UID=$SCOUT_UID
+SCOUT_UID=${SCOUT_UIDS[$i]}
 WEBHOOK_API_KEY=${WEBHOOK_API_KEYS[$i]}
 # Scout Webhook Url, update based on your server's IP and Port
 WEBHOOK_URL=$WEBHOOK_URL
