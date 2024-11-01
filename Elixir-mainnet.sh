@@ -50,7 +50,7 @@ EOF
     fi
 
     # 拉取 Docker 镜像
-    docker pull elixirprotocol/validator --platform linux/amd64
+    docker pull elixirprotocol/validator
 
     # 提示用户选择平台
     read -p "您是否在Apple/ARM架构上运行？(y/n): " is_arm
