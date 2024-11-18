@@ -35,6 +35,17 @@ check_compose_command() {
     fi
 }
 
+# 函数：删除旧的容器以避免命名冲突
+remove_old_containers() {
+    local container_name=$1
+    if docker ps -a --format '{{.Names}}' | grep -q "$container_name"; then
+        echo "发现旧的容器 $container_name，正在删除..."
+        docker rm -f "$container_name"
+    else
+        echo "未发现旧的容器 $container_name。"
+    fi
+}
+
 # 提示用户输入编号范围
 read -p "请输入编号范围（例如 4-10 或 4,5,6-9）: " input_range
 
@@ -82,6 +93,18 @@ for folder in "${folders[@]}"; do
                     # 用户按回车，保持不变
                     echo "保持 typesense 端口不变。"
                 fi
+
+                # 调用 sync 确保文件修改写入磁盘
+                sync
+                echo "已确保 docker-compose.yml 文件修改写入磁盘。"
+
+                # 添加适当的延时，确保文件系统处理完成
+                sleep 2
+                echo "等待 2 秒，确保文件系统处理完成..."
+
+                # 删除旧的容器，避免命名冲突
+                remove_old_containers "typesense-$folder_number"
+                remove_old_containers "ocean-node-$folder_number"
 
                 # 执行 docker-compose up -d
                 echo "正在执行 $compose_cmd up -d..."
