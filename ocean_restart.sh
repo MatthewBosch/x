@@ -29,33 +29,22 @@ read -p "请输入编号范围（例如 4-10 或 4,5,6-9）: " input_range
 # 解析编号范围，生成文件夹列表
 folders=($(parse_range "$input_range"))
 
-# 检查是否安装了 docker-compose 或 docker compose
-if command -v docker-compose &> /dev/null; then
-    docker_cmd="docker-compose"
-elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    docker_cmd="docker compose"
-else
-    echo "未检测到 docker-compose 或 docker compose，无法继续执行。"
-    exit 1
-fi
-
 # 循环遍历每个 ocean 文件夹
 for folder in "${folders[@]}"; do
     yml_file="$folder/docker-compose.yml"
-    folder_number=${folder#ocean}  # 提取文件夹编号（例如 ocean5 提取为 5）
-    
+
     if [ -d "$folder" ]; then
         if [ -f "$yml_file" ]; then
             echo "正在检查 $folder 中的 docker-compose.yml..."
 
-            # 提取 typesense 服务的端口映射
-            current_port=$(grep -A 1 'typesense:' "$yml_file" | grep 'ports:' -A 1 | grep -oP '\d+:\d+')
-            
+            # 读取 typesense 的端口配置
+            current_port=$(grep -A 2 'typesense:' "$yml_file" | grep 'ports:' -A 1 | grep -oP '\d+:\d+')
+
             if [[ -n "$current_port" ]]; then
                 host_port=$(echo "$current_port" | cut -d ':' -f 1)
                 container_port=$(echo "$current_port" | cut -d ':' -f 2)
                 echo "检测到 typesense 配置，当前 typesense 端口为 $host_port:$container_port。"
-                
+
                 # 提示用户是否修改端口
                 read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $host_port:$host_port）: " user_input
 
@@ -75,16 +64,6 @@ for folder in "${folders[@]}"; do
                 echo "警告: 未找到 typesense 服务的端口映射，跳过端口修改。"
             fi
 
-            # 进入文件夹并执行 docker-compose up -d
-            echo "正在启动 $folder 中的 docker-compose.yml..."
-            cd "$folder"
-            $docker_cmd up -d
-
-            # 使用 docker restart 重新启动 ocean-node-<编号> 和 typesense-<编号> 容器
-            echo "正在使用 docker restart 重启 ocean-node-$folder_number 和 typesense-$folder_number 容器..."
-            docker restart ocean-node-$folder_number typesense-$folder_number
-
-            cd ..
         else
             echo "警告: 未找到 $folder/docker-compose.yml 文件，跳过此文件夹。"
         fi
@@ -93,4 +72,4 @@ for folder in "${folders[@]}"; do
     fi
 done
 
-echo "所有文件夹中的 yml 文件执行和重启操作完毕。"
+echo "所有文件夹中的 yml 文件处理完毕。"
