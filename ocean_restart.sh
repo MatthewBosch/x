@@ -56,14 +56,16 @@ for folder in "${folders[@]}"; do
                 # 提示用户是否修改端口
                 read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $current_port:$current_port）: " user_input
 
-                # 如果用户输入 "no"，将 8108 改为 current_port
+                # 如果用户输入 "no"，将第二个端口改为与第一个端口相同
                 if [[ "$user_input" == "no" ]]; then
                     sed -i "s/- \"$current_port:8108\"/- \"$current_port:$current_port\"/" "$yml_file"
                     echo "已将 typesense 端口从 $current_port:8108 修改为 $current_port:$current_port。"
                 elif [[ ! -z "$user_input" ]]; then
+                    # 用户输入了具体的端口号，修改为用户输入的端口号
                     sed -i "s/- \"$current_port:8108\"/- \"$user_input:8108\"/" "$yml_file"
                     echo "已将 typesense 端口从 $current_port:8108 修改为 $user_input:8108。"
                 else
+                    # 如果用户按回车，保持不变
                     echo "保持 typesense 端口不变。"
                 fi
             else
