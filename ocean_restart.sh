@@ -70,14 +70,14 @@ for folder in "${folders[@]}"; do
                 echo "警告: 未找到 $folder/docker-compose.yml 文件中的 typesense 配置，跳过端口修改。"
             fi
 
-            # 进入文件夹并执行 docker compose up -d
+            # 进入文件夹并执行 docker-compose up -d
             echo "正在启动 $folder 中的 docker-compose.yml..."
             cd "$folder"
             $docker_cmd up -d
 
-            # 动态重启 ocean-node-<编号> 和 typesense-<编号> 容器
-            echo "正在重启 ocean-node-$folder_number 和 typesense-$folder_number 容器..."
-            $docker_cmd restart ocean-node-$folder_number typesense-$folder_number
+            # 使用 docker restart 重新启动 ocean-node-<编号> 和 typesense-<编号> 容器
+            echo "正在使用 docker restart 重启 ocean-node-$folder_number 和 typesense-$folder_number 容器..."
+            docker restart ocean-node-$folder_number typesense-$folder_number
 
             cd ..
         else
