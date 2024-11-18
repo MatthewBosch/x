@@ -89,7 +89,7 @@ for folder in "${folders[@]}"; do
                     # 修改为相同的端口号
                     sed -i "s/$host_port:$container_port/$host_port:$host_port/" "$yml_file"
                     echo "已将 typesense-$folder_number 端口修改为 $host_port:$host_port。"
-                elif [[ ! -z "$user_input" ]]; then
+                elif [[ -n "$user_input" ]]; then
                     # 修改为用户指定的端口号
                     sed -i "s/$host_port:$container_port/$user_input:$container_port/" "$yml_file"
                     echo "已将 typesense-$folder_number 端口修改为 $user_input:$container_port。"
