@@ -79,9 +79,13 @@ for folder in "${folders[@]}"; do
                 echo "检测到 typesense-$folder_number 容器，端口配置为：$host_port:$container_port"
 
                 # 提示用户是否修改端口
-                read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $host_port:$host_port）: " user_input
+                read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $host_port:$host_port，输入 'yes' 跳过此文件夹）: " user_input
 
-                if [[ "$user_input" == "no" ]]; then
+                if [[ "$user_input" == "yes" ]]; then
+                    # 用户输入 'yes'，跳过当前文件夹，不做任何操作
+                    echo "跳过 $folder 文件夹，不做任何修改或操作。"
+                    continue
+                elif [[ "$user_input" == "no" ]]; then
                     # 修改为相同的端口号
                     sed -i "s/$host_port:$container_port/$host_port:$host_port/" "$yml_file"
                     echo "已将 typesense-$folder_number 端口修改为 $host_port:$host_port。"
@@ -110,9 +114,8 @@ for folder in "${folders[@]}"; do
                 echo "正在执行 $compose_cmd up -d..."
                 (cd "$folder" && $compose_cmd up -d)
 
-                # 重启 ocean-node 和 typesense 容器
-                echo "正在重启 ocean-node-$folder_number 和 typesense-$folder_number 容器..."
-                docker restart "ocean-node-$folder_number" "typesense-$folder_number"
+                # 不再执行 docker restart，因为 docker-compose up -d 会自动启动容器
+                echo "$folder 的 typesense 和 ocean-node 容器已启动。"
 
             else
                 echo "警告: 未找到 typesense-$folder_number 容器的端口配置，跳过处理。"
