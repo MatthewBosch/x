@@ -38,11 +38,17 @@ for folder in "${folders[@]}"; do
         if [ -f "$yml_file" ]; then
             echo "正在检查 $folder 中的 docker-compose.yml..."
 
-            # 搜索 container_name: typesense-<编号> 并输出下一行的端口配置
-            port_line=$(awk "/container_name: typesense-$folder_number/{getline; print}" "$yml_file")
+            # 搜索 container_name: typesense-<编号>
+            # 使用 grep -A 3 找到 container_name 并输出接下来的 3 行（通常包括 ports 配置）
+            result=$(grep -A 3 "container_name: typesense-$folder_number" "$yml_file")
+
+            # 提取 ports 行
+            port_line=$(echo "$result" | grep 'ports')
 
             if [[ -n "$port_line" ]]; then
-                echo "检测到 typesense-$folder_number 容器，下一行内容为：$port_line"
+                # 获取端口号
+                ports=$(echo "$result" | grep -oP '\d+:\d+')
+                echo "检测到 typesense-$folder_number 容器，端口配置为：$ports"
             else
                 echo "警告: 未找到 typesense-$folder_number 容器的端口配置，跳过处理。"
             fi
