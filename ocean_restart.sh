@@ -114,7 +114,7 @@ for folder in "${folders[@]}"; do
                 echo "正在执行 $compose_cmd up -d..."
                 (cd "$folder" && $compose_cmd up -d)
 
-                # 不再执行 docker restart，因为 docker-compose up -d 会自动启动容器
+                # 容器已经启动，无需手动重启
                 echo "$folder 的 typesense 和 ocean-node 容器已启动。"
 
             else
