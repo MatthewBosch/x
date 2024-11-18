@@ -37,12 +37,8 @@ for ((i = 1; i <= yml_count; i++)); do
   wallets[$i]="Public Key: $public_key, Private Key: $private_key"
 done
 
-# 起始 HTTP 端口， 每个容器递增 100
-base_http_port=16010
-# 起始 P2P 端口， 每个容器递增 100
-base_p2p_port=16020
-# 起始 Typesense 端口， 每个容器递增 10
-base_typesense_port=8208
+# 基本端口号
+base_port=16010
 
 # 循环生成 yml 文件
 for ((i = 0; i < yml_count; i++)); do
@@ -50,14 +46,14 @@ for ((i = 0; i < yml_count; i++)); do
   current_index=$((start_index + i))
 
   # 计算 HTTP 和 P2P 相关端口
-  ocean_http_port=$((base_http_port + (current_index - 1) * 100))
-  p2p_ipv4_tcp_port=$((base_p2p_port + (current_index - 1) * 100))
+  ocean_http_port=$((base_port + (current_index - 1) * 100))
+  p2p_ipv4_tcp_port=$((ocean_http_port + 10))
   p2p_ipv4_ws_port=$((p2p_ipv4_tcp_port + 1))
   p2p_ipv6_tcp_port=$((p2p_ipv4_tcp_port + 2))
   p2p_ipv6_ws_port=$((p2p_ipv4_tcp_port + 3))
 
   # 计算 Typesense 端口
-  typesense_port=$((base_typesense_port + (current_index - 1) * 10))
+  typesense_port=$((8208 + (current_index - 1) * 10))
 
   # 获取对应的钱包地址
   evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
@@ -135,7 +131,7 @@ while true; do
   read -p "是否执行生成的 yml 文件？(yes/no): " execute_choice
   case $execute_choice in
     [Yy]* )
-      # 首先检查系统上是否有 `docker-compose` 或 `docker compose`
+      # 检查系统上是否有 `docker-compose` 或 `docker compose`
       if command -v docker-compose &> /dev/null; then
         docker_cmd="docker-compose"
       elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
