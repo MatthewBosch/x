@@ -32,38 +32,20 @@ folders=($(parse_range "$input_range"))
 # 循环遍历每个 ocean 文件夹
 for folder in "${folders[@]}"; do
     yml_file="$folder/docker-compose.yml"
+    folder_number=${folder#ocean}  # 提取文件夹编号（例如 ocean5 提取为 5）
 
     if [ -d "$folder" ]; then
         if [ -f "$yml_file" ]; then
             echo "正在检查 $folder 中的 docker-compose.yml..."
 
-            # 读取 typesense 的端口配置
-            current_port=$(grep -A 2 'typesense:' "$yml_file" | grep 'ports:' -A 1 | grep -oP '\d+:\d+')
+            # 搜索 container_name: typesense-<编号> 并输出下一行的端口配置
+            port_line=$(awk "/container_name: typesense-$folder_number/{getline; print}" "$yml_file")
 
-            if [[ -n "$current_port" ]]; then
-                host_port=$(echo "$current_port" | cut -d ':' -f 1)
-                container_port=$(echo "$current_port" | cut -d ':' -f 2)
-                echo "检测到 typesense 配置，当前 typesense 端口为 $host_port:$container_port。"
-
-                # 提示用户是否修改端口
-                read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $host_port:$host_port）: " user_input
-
-                # 如果用户输入 "no"，将第二个端口改为与第一个端口相同
-                if [[ "$user_input" == "no" ]]; then
-                    sed -i "s/- \"$host_port:$container_port\"/- \"$host_port:$host_port\"/" "$yml_file"
-                    echo "已将 typesense 端口从 $host_port:$container_port 修改为 $host_port:$host_port。"
-                elif [[ ! -z "$user_input" ]]; then
-                    # 用户输入了具体的端口号，修改为用户输入的端口号
-                    sed -i "s/- \"$host_port:$container_port\"/- \"$user_input:$container_port\"/" "$yml_file"
-                    echo "已将 typesense 端口从 $host_port:$container_port 修改为 $user_input:$container_port。"
-                else
-                    # 如果用户按回车，保持不变
-                    echo "保持 typesense 端口不变。"
-                fi
+            if [[ -n "$port_line" ]]; then
+                echo "检测到 typesense-$folder_number 容器，下一行内容为：$port_line"
             else
-                echo "警告: 未找到 typesense 服务的端口映射，跳过端口修改。"
+                echo "警告: 未找到 typesense-$folder_number 容器的端口配置，跳过处理。"
             fi
-
         else
             echo "警告: 未找到 $folder/docker-compose.yml 文件，跳过此文件夹。"
         fi
