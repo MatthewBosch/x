@@ -50,10 +50,9 @@ for folder in "${folders[@]}"; do
 
             # 检查 typesense 端口
             if grep -q 'typesense:' "$yml_file"; then
-                # 提取当前端口
                 current_port=$(grep -oP '\d+(?=:8108)' "$yml_file")
                 echo "检测到 typesense 配置，当前 typesense 端口为 $current_port:8108。"
-
+                
                 # 提示用户是否修改端口
                 read -p "请输入新的 typesense 端口号（回车保持不变，输入 'no' 修改为 $current_port:$current_port）: " user_input
 
@@ -61,13 +60,9 @@ for folder in "${folders[@]}"; do
                 if [[ "$user_input" == "no" ]]; then
                     sed -i "s/- \"$current_port:8108\"/- \"$current_port:$current_port\"/" "$yml_file"
                     echo "已将 typesense 端口从 $current_port:8108 修改为 $current_port:$current_port。"
-                
-                # 如果用户输入了具体的端口号，则进行替换
                 elif [[ ! -z "$user_input" ]]; then
                     sed -i "s/- \"$current_port:8108\"/- \"$user_input:8108\"/" "$yml_file"
                     echo "已将 typesense 端口从 $current_port:8108 修改为 $user_input:8108。"
-                
-                # 用户回车，不修改端口
                 else
                     echo "保持 typesense 端口不变。"
                 fi
@@ -75,12 +70,12 @@ for folder in "${folders[@]}"; do
                 echo "警告: 未找到 $folder/docker-compose.yml 文件中的 typesense 配置，跳过端口修改。"
             fi
 
-            # 执行 docker-compose up -d
+            # 进入文件夹并执行 docker compose up -d
             echo "正在启动 $folder 中的 docker-compose.yml..."
             cd "$folder"
             $docker_cmd up -d
 
-            # 重启 ocean-node-<编号> 和 typesense-<编号> 容器
+            # 动态重启 ocean-node-<编号> 和 typesense-<编号> 容器
             echo "正在重启 ocean-node-$folder_number 和 typesense-$folder_number 容器..."
             $docker_cmd restart ocean-node-$folder_number typesense-$folder_number
 
