@@ -107,7 +107,7 @@ services:
     image: typesense/typesense:26.0
     container_name: typesense-$current_index
     ports:
-      - "$typesense_port:8108"
+      - "$typesense_port:$typesense_port"
     networks:
       - ocean_network
     volumes:
