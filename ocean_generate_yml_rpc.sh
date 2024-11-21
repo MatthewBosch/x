@@ -53,7 +53,7 @@ for ((i = 0; i < yml_count; i++)); do
   p2p_ipv6_ws_port=$((p2p_ipv4_tcp_port + 3))
 
   # 计算 Typesense 端口
-  typesense_port=$((8208 + (current_index - 1) * 10))
+  typesense_port=$((18208 + (current_index - 1) * 10))
 
   # 获取对应的钱包地址
   evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
