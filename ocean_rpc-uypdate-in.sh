@@ -48,18 +48,8 @@ for index in "${target_indices[@]}"; do
     echo "正在处理文件夹: $folder"
 
     # 替换 docker-compose.yml 中的 RPCS 内容
-    # 使用 awk 匹配并替换 environment 下的 RPCS
-    awk -v new_rpcs="$new_rpcs" '
-    BEGIN { inside_environment = 0 }
-    /environment:/ { inside_environment = 1 }
-    inside_environment && /RPCS:/ {
-      print "      RPCS: '\''" new_rpcs "'\''"
-      next
-    }
-    /PRIVATE_KEY:/ { print; next }
-    /^[^[:space:]]/ { inside_environment = 0 } # 退出 environment 块
-    { print }
-    ' "$yml_file" > "$yml_file.tmp" && mv "$yml_file.tmp" "$yml_file"
+    # 搜索到 RPCS: 并替换整行内容
+    sed -i "s|^\s*RPCS:.*|      RPCS: '$new_rpcs'|g" "$yml_file"
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
