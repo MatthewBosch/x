@@ -109,7 +109,7 @@ services:
     ports:
       - "$typesense_port:$typesense_port"
     networks:
-      - ocean_network
+      - ocean_network_${current_index}
     volumes:
       - typesense-data-${current_index}:/data
     command: '--data-dir /data --api-key=xyz'
