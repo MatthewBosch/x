@@ -52,9 +52,12 @@ for index in "${target_indices[@]}"; do
 
     # 逐行读取并修改文件
     while IFS= read -r line; do
-      if [[ "$line" =~ ^[[:space:]]*RPCS: ]]; then
-        # 如果检测到 RPCS 行，替换为新内容
-        echo "      RPCS: '$new_rpcs'" >> "$temp_file"
+      if [[ "$line" =~ ^([[:space:]]*)RPCS: ]]; then
+        # 提取前面的缩进
+        indentation="${BASH_REMATCH[1]}"
+        # 替换为新的 RPCS 内容，保留缩进
+        echo "${indentation}RPCS: '$new_rpcs'" >> "$temp_file"
+        echo "已替换 RPCS 行：$line"
       else
         # 保留其他行
         echo "$line" >> "$temp_file"
