@@ -43,7 +43,7 @@ for index in "${target_indices[@]}"; do
   folder="ocean$index"
   yml_file="$folder/docker-compose.yml"
 
-  # 检查文件夹是否存在
+  # 检查文件夹和文件是否存在
   if [[ -d "$folder" && -f "$yml_file" ]]; then
     echo "正在处理文件夹: $folder"
 
@@ -64,9 +64,14 @@ for index in "${target_indices[@]}"; do
       fi
     done < "$yml_file"
 
-    # 替换原文件为修改后的临时文件
-    mv "$temp_file" "$yml_file"
-    echo "已成功替换 $yml_file 中的 RPCS 行"
+    # 检查是否修改成功
+    if grep -q "RPCS:" "$temp_file"; then
+      # 替换原文件为修改后的临时文件
+      mv "$temp_file" "$yml_file"
+      echo "已成功替换 $yml_file 中的 RPCS 行"
+    else
+      echo "未找到 RPCS 行，跳过修改 $yml_file"
+    fi
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
