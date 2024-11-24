@@ -12,34 +12,30 @@ read -p "请输入容器编号的起始值（例如，如果输入3，则容器�
 # 接收 IP 地址
 read -p "请输入 P2P 绑定的 IP 地址: " ip_address
 
-# 提示用户一次性输入钱包信息
-echo "请一次性输入所有钱包信息（格式: Wallet X: Public Key: 0x..., Private Key: 0x...）。输入完成后按 Ctrl+D 结束："
-
-# 读取用户的多行输入
-wallet_data=$(cat)
-
-# 初始化一个数组存储解析后的钱包信息
+# 接收 EVM 钱包地址和私钥
 declare -A wallets
+echo "请输入 EVM 钱包信息（格式: Wallet 1: Public Key: 0x..., Private Key: 0x...），一行一个："
 
-# 解析钱包信息
-wallet_index=1
-while IFS= read -r line; do
-  # 提取 Public Key 和 Private Key
-  public_key=$(echo "$line" | grep -oP 'Public Key:\s*0x[a-fA-F0-9]{40}' | awk -F ': ' '{print $2}')
-  private_key=$(echo "$line" | grep -oP 'Private Key:\s*0x[a-fA-F0-9]{64}' | awk -F ': ' '{print $2}')
-
-  # 检查提取结果是否有效
-  if [[ -n "$public_key" && -n "$private_key" ]]; then
-    wallets[$wallet_index]="$public_key,$private_key"
-    ((wallet_index++))
+# 循环接收钱包信息
+for ((i = 1; i <= yml_count; i++)); do
+  wallet_info=""
+  while [[ -z "$wallet_info" ]]; do
+    read -p "Wallet $i: " wallet_info
+  done
+  
+  # 使用正则表达式精确提取公钥和私钥，去掉多余的逗号和空格
+  public_key=$(echo $wallet_info | grep -oP 'Public Key: 0x[a-fA-F0-9]{40}' | cut -d ' ' -f 3)
+  private_key=$(echo $wallet_info | grep -oP 'Private Key: 0x[a-fA-F0-9]{64}' | cut -d ' ' -f 3)
+  
+  # 检查公钥和私钥是否提取成功
+  if [[ -z "$public_key" || -z "$private_key" ]]; then
+    echo "输入格式有误，请确保格式为: Wallet X: Public Key: 0x..., Private Key: 0x..."
+    exit 1
   fi
-done <<< "$wallet_data"
 
-# 检查是否有足够的钱包数量
-if [[ ${#wallets[@]} -lt $yml_count ]]; then
-  echo "错误：输入的钱包数量不足以生成 $yml_count 个 yml 文件。"
-  exit 1
-fi
+  # 将提取到的钱包信息存入数组
+  wallets[$i]="Public Key: $public_key, Private Key: $private_key"
+done
 
 # 基本端口号
 base_port=16010
@@ -59,10 +55,11 @@ for ((i = 0; i < yml_count; i++)); do
   # 计算 Typesense 端口
   typesense_port=$((28208 + (current_index - 1) * 10))
 
-  # 获取对应的钱包地址和私钥
-  wallet_info=${wallets[$((i + 1))]}
-  evm_address=$(echo "$wallet_info" | cut -d ',' -f 1)
-  private_key=$(echo "$wallet_info" | cut -d ',' -f 2)
+  # 获取对应的钱包地址
+  evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
+
+  # 去除 EVM 地址中可能多余的逗号
+  evm_address=$(echo $evm_address | sed 's/,$//')
 
   # 创建对应的文件夹
   folder="ocean$current_index"
@@ -83,8 +80,8 @@ services:
       - "$p2p_ipv6_tcp_port:$p2p_ipv6_tcp_port"
       - "$p2p_ipv6_ws_port:$p2p_ipv6_ws_port"
     environment:
-      PRIVATE_KEY: '$private_key'
-      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'
+      PRIVATE_KEY: '${wallets[$((i + 1))]#*, Private Key: }'
+      RPCS: '{"1":{"rpc":"https://mainnet.infura.io/v3/5d9f50e145964c318dac0d6526278993","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public","https://ethereum-rpc.publicnode.com"],"chainId":1,"network":"mainnet","chunkSize":100},"11155111":{"rpc":"https://sepolia.infura.io/v3/5d9f50e145964c318dac0d6526278993","fallbackRPCs":["https://eth-sepolia.public.blastapi.io","https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"137":{"rpc":"https://polygon-mainnet.infura.io/v3/5d9f50e145964c318dac0d6526278993","fallbackRPCs":["https://polygon-rpc.com/","https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"10":{"rpc":"https://optimism-mainnet.infura.io/v3/5d9f50e145964c318dac0d6526278993","fallbackRPCs":["https://mainnet.optimism.io","https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"11155420":{"rpc":"https://optimism-sepolia.infura.io/v3/5d9f50e145964c318dac0d6526278993","fallbackRPCs":["https://sepolia.optimism.io","https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'
       DB_URL: 'http://typesense:8108/?apiKey=xyz'
       IPFS_GATEWAY: 'https://ipfs.io/'
       ARWEAVE_GATEWAY: 'https://arweave.net/'
@@ -127,4 +124,40 @@ networks:
 EOL
 
   echo "已生成文件: $folder/docker-compose.yml"
+done
+
+# 确保用户输入 yes 或 no 之前不会跳过
+while true; do
+  read -p "是否执行生成的 yml 文件？(yes/no): " execute_choice
+  case $execute_choice in
+    [Yy]* )
+      # 检查系统上是否有 `docker-compose` 或 `docker compose`
+      if command -v docker-compose &> /dev/null; then
+        docker_cmd="docker-compose"
+      elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+        docker_cmd="docker compose"
+      else
+        echo "未检测到 docker-compose 或 docker compose，无法继续执行。"
+        exit 1
+      fi
+
+      for ((i = 0; i < yml_count; i++)); do
+        current_index=$((start_index + i))
+        folder="ocean$current_index"
+        cd $folder
+        echo "正在使用 $docker_cmd up -d 在文件夹: $folder"
+        $docker_cmd up -d
+        cd ..
+      done
+      echo "所有 yml 文件已执行完毕。"
+      break
+      ;;
+    [Nn]* )
+      echo "yml 文件已生成，但未执行。"
+      break
+      ;;
+    * )
+      echo "请输入 'yes' 或 'no'。"
+      ;;
+  esac
 done
