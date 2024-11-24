@@ -23,6 +23,9 @@ for ((i = 1; i <= yml_count; i++)); do
     read -p "Wallet $i: " wallet_info
   done
 
+  # 清理重复的 "Wallet X: Wallet X:" 格式
+  wallet_info=$(echo "$wallet_info" | sed -E 's/^Wallet [0-9]+:\s*Wallet [0-9]+:/Wallet \1:/')
+
   # 使用正则表达式提取 Public Key 和 Private Key
   public_key=$(echo "$wallet_info" | grep -oiP 'Public Key:\s*0x[a-fA-F0-9]{40}' | sed 's/Public Key:\s*//I')
   private_key=$(echo "$wallet_info" | grep -oiP 'Private Key:\s*0x[a-fA-F0-9]{64}' | sed 's/Private Key:\s*//I')
@@ -56,8 +59,9 @@ for ((i = 0; i < yml_count; i++)); do
   # 计算 Typesense 端口
   typesense_port=$((28208 + (current_index - 1) * 10))
 
-  # 获取对应的钱包地址
+  # 获取对应的钱包地址和私钥
   evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
+  evm_private_key=$(echo ${wallets[$((i + 1))]} | sed 's/.*Private Key: //')
 
   # 去除 EVM 地址中可能多余的逗号
   evm_address=$(echo $evm_address | sed 's/,$//')
@@ -81,7 +85,7 @@ services:
       - "$p2p_ipv6_tcp_port:$p2p_ipv6_tcp_port"
       - "$p2p_ipv6_ws_port:$p2p_ipv6_ws_port"
     environment:
-      PRIVATE_KEY: '${wallets[$((i + 1))]#*, Private Key: }'
+      PRIVATE_KEY: '$evm_private_key'
       RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'     
       DB_URL: 'http://typesense:8108/?apiKey=xyz'
       IPFS_GATEWAY: 'https://ipfs.io/'
@@ -132,7 +136,6 @@ while true; do
   read -p "是否执行生成的 yml 文件？(yes/no): " execute_choice
   case $execute_choice in
     [Yy]* )
-      # 检查系统上是否有 `docker-compose` 或 `docker compose`
       if command -v docker-compose &> /dev/null; then
         docker_cmd="docker-compose"
       elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
@@ -146,7 +149,6 @@ while true; do
         current_index=$((start_index + i))
         folder="ocean$current_index"
         cd $folder
-        echo "正在使用 $docker_cmd up -d 在文件夹: $folder"
         $docker_cmd up -d
         cd ..
       done
