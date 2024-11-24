@@ -1,35 +1,50 @@
 #!/bin/bash
 
-# 询问用户文件夹的起始编号和结束编号
-read -p "请输入文件夹的起始编号（例如 4）: " start
-read -p "请输入文件夹的结束编号（例如 14）: " end
+# 清屏
+clear
 
-# 检查是否安装了 docker-compose 或 docker compose
-if command -v docker-compose &> /dev/null; then
-    docker_cmd="docker-compose"
-elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
-    docker_cmd="docker compose"
-else
-    echo "未检测到 docker-compose 或 docker compose，无法继续执行。"
-    exit 1
-fi
+# 接收用户输入的编号范围
+read -p "请输入需要重启容器的编号范围（例如 1,2-5,8,10）: " input_ranges
 
-# 循环遍历从 start 到 end 的文件夹并执行 docker-compose.yml
-for ((i = start; i <= end; i++)); do
-    folder="ocean$i"
+# 展开编号范围到具体的编号列表
+expand_ranges() {
+  local ranges="$1"
+  local expanded=()
 
-    if [ -d "$folder" ]; then
-        if [ -f "$folder/docker-compose.yml" ]; then
-            echo "正在启动 $folder 中的 docker-compose.yml..."
-            cd "$folder"
-            $docker_cmd up -d
-            cd ..
-        else
-            echo "警告: 未找到 $folder/docker-compose.yml 文件，跳过此文件夹。"
-        fi
+  # 使用逗号分隔每个范围
+  IFS=',' read -ra parts <<< "$ranges"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      # 单个编号
+      expanded+=("$part")
+    elif [[ "$part" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      # 范围编号，展开为具体编号
+      for ((i=${BASH_REMATCH[1]}; i<=${BASH_REMATCH[2]}; i++)); do
+        expanded+=("$i")
+      done
     else
-        echo "警告: 未找到 $folder 文件夹，跳过此文件夹。"
+      echo "[ERROR] 无效的输入范围: $part"
+      exit 1
     fi
+  done
+
+  # 返回展开的编号列表
+  echo "${expanded[@]}"
+}
+
+# 展开输入的编号范围为具体编号列表
+target_indices=($(expand_ranges "$input_ranges"))
+
+# 遍历每个目标编号并执行 docker restart
+for index in "${target_indices[@]}"; do
+  typesense_container="typesense-$index"
+  ocean_node_container="ocean-node-$index"
+
+  echo "[INFO] 重启容器: $typesense_container 和 $ocean_node_container"
+  
+  # 执行 docker restart
+  docker restart "$typesense_container" >/dev/null 2>&1 && echo "  - $typesense_container 已成功重启" || echo "  - [ERROR] 无法重启 $typesense_container"
+  docker restart "$ocean_node_container" >/dev/null 2>&1 && echo "  - $ocean_node_container 已成功重启" || echo "  - [ERROR] 无法重启 $ocean_node_container"
 done
 
-echo "所有文件夹中的 yml 文件执行完毕。"
+echo "[INFO] 操作完成！"
