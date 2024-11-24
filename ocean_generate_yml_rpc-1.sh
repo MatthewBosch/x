@@ -14,7 +14,7 @@ read -p "请输入 P2P 绑定的 IP 地址: " ip_address
 
 # 接收 EVM 钱包地址和私钥
 declare -A wallets
-echo "请输入 EVM 钱包信息（格式: Wallet 1: Public Key: 0x..., Private Key: 0x...），一行一个："
+echo "请输入 EVM 钱包信息（格式: Wallet X: Public Key: 0x..., Private Key: 0x...），一行一个："
 
 # 循环接收钱包信息
 for ((i = 1; i <= yml_count; i++)); do
@@ -22,20 +22,16 @@ for ((i = 1; i <= yml_count; i++)); do
   while [[ -z "$wallet_info" ]]; do
     read -p "Wallet $i: " wallet_info
   done
-  
-  # 使用正则表达式精确提取公钥和私钥，去掉多余的逗号和空格
-  public_key=$(echo $wallet_info | grep -oP 'Public Key: 0x[a-fA-F0-9]{40}' | cut -d ' ' -f 3)
-  private_key=$(echo $wallet_info | grep -oP 'Private Key: 0x[a-fA-F0-9]{64}' | cut -d ' ' -f 3)
 
-  # 检查公钥和私钥是否提取成功
+  # 使用正则表达式提取 Public Key 和 Private Key
+  public_key=$(echo "$wallet_info" | grep -oiP 'Public Key:\s*0x[a-fA-F0-9]{40}' | sed 's/Public Key:\s*//I')
+  private_key=$(echo "$wallet_info" | grep -oiP 'Private Key:\s*0x[a-fA-F0-9]{64}' | sed 's/Private Key:\s*//I')
+
+  # 检查提取结果是否为空
   if [[ -z "$public_key" || -z "$private_key" ]]; then
     echo "输入格式有误，请确保格式为: Wallet X: Public Key: 0x..., Private Key: 0x..."
-    exit 1
-  fi
-
-  # 如果私钥没有以 0x 开头，则自动加上
-  if [[ "$private_key" != 0x* ]]; then
-    private_key="0x$private_key"
+    ((i--)) # 回退当前循环
+    continue
   fi
 
   # 将提取到的钱包信息存入数组
@@ -86,7 +82,7 @@ services:
       - "$p2p_ipv6_ws_port:$p2p_ipv6_ws_port"
     environment:
       PRIVATE_KEY: '${wallets[$((i + 1))]#*, Private Key: }'
-      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'      
+      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'     
       DB_URL: 'http://typesense:8108/?apiKey=xyz'
       IPFS_GATEWAY: 'https://ipfs.io/'
       ARWEAVE_GATEWAY: 'https://arweave.net/'
@@ -131,7 +127,7 @@ EOL
   echo "已生成文件: $folder/docker-compose.yml"
 done
 
-# 确保用户输入 yes 或 no 之前不会跳过
+# 提示用户是否执行生成的 yml 文件
 while true; do
   read -p "是否执行生成的 yml 文件？(yes/no): " execute_choice
   case $execute_choice in
