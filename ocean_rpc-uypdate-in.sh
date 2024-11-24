@@ -46,9 +46,13 @@ for index in "${target_indices[@]}"; do
   # 检查文件夹和文件是否存在
   if [[ -d "$folder" && -f "$yml_file" ]]; then
     echo "正在处理文件夹: $folder"
+    echo "目标文件: $yml_file"
 
     # 创建临时文件
     temp_file=$(mktemp)
+
+    # 是否找到 RPCS 行的标志
+    found_rpcs_line=false
 
     # 逐行读取并修改文件
     while IFS= read -r line; do
@@ -57,44 +61,49 @@ for index in "${target_indices[@]}"; do
         indentation="${BASH_REMATCH[1]}"
         # 替换为新的 RPCS 内容，保留缩进
         echo "${indentation}RPCS: '$new_rpcs'" >> "$temp_file"
-        echo "已替换 RPCS 行：$line"
+        echo "[INFO] 替换 RPCS 行：$line"
+        found_rpcs_line=true
       else
         # 保留其他行
         echo "$line" >> "$temp_file"
       fi
     done < "$yml_file"
 
-    # 检查是否修改成功
-    if grep -q "RPCS:" "$temp_file"; then
-      # 替换原文件为修改后的临时文件
-      mv "$temp_file" "$yml_file"
-      echo "已成功替换 $yml_file 中的 RPCS 行"
+    if [[ "$found_rpcs_line" == false ]]; then
+      echo "[WARNING] 未找到 RPCS 行，文件未被修改: $yml_file"
     else
-      echo "未找到 RPCS 行，跳过修改 $yml_file"
+      echo "[INFO] 成功找到并替换 RPCS 行。"
+    fi
+
+    # 将修改写回原文件
+    if [[ -s "$temp_file" ]]; then
+      mv "$temp_file" "$yml_file" && echo "[INFO] 文件已成功写入: $yml_file" || echo "[ERROR] 写入文件失败: $yml_file"
+    else
+      echo "[ERROR] 临时文件为空，未写入任何内容: $yml_file"
     fi
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
     typesense_container="typesense-$index"
 
-    echo "删除容器: $ocean_node_container 和 $typesense_container"
+    echo "[INFO] 删除容器: $ocean_node_container 和 $typesense_container"
     docker rm -f "$ocean_node_container" "$typesense_container" 2>/dev/null
 
     # 重新启动 docker-compose
-    echo "重新启动容器: $folder"
+    echo "[INFO] 重新启动容器: $folder"
     cd "$folder"
     if command -v docker-compose &> /dev/null; then
       docker-compose up -d
     elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
       docker compose up -d
     else
-      echo "未检测到 docker-compose 或 docker compose，无法启动容器。"
+      echo "[ERROR] 未检测到 docker-compose 或 docker compose，无法启动容器。"
       exit 1
     fi
     cd - &> /dev/null
   else
-    echo "文件夹 $folder 或文件 $yml_file 不存在，跳过。"
+    echo "[WARNING] 文件夹 $folder 或文件 $yml_file 不存在，跳过。"
   fi
 done
 
-echo "所有操作完成！"
+echo "[INFO] 所有操作完成！"
