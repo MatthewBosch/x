@@ -9,7 +9,7 @@ new_rpcs='{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["htt
 # 接收用户输入的编号范围（例如 1,2-5,9）
 read -p "请输入需要操作的编号范围（例如 1,2-5,9）: " input_ranges
 
-# 解析输入的编号范围，将其展开为具体编号列表
+# 展开编号范围到具体的编号列表
 expand_ranges() {
   local ranges="$1"
   local expanded=()
@@ -47,22 +47,18 @@ for index in "${target_indices[@]}"; do
   if [[ -d "$folder" && -f "$yml_file" ]]; then
     echo "正在处理文件夹: $folder"
 
-    # 替换 docker-compose.yml 中的 RPC 内容
-    # 使用 awk 和 sed 组合处理多行 JSON 替换
+    # 替换 docker-compose.yml 中的 RPCS 内容
+    # 使用 awk 匹配并替换 environment 下的 RPCS
     awk -v new_rpcs="$new_rpcs" '
-    BEGIN { replaced = 0 }
-    /RPCS: / {
+    BEGIN { inside_environment = 0 }
+    /environment:/ { inside_environment = 1 }
+    inside_environment && /RPCS:/ {
       print "      RPCS: '\''" new_rpcs "'\''"
-      replaced = 1
       next
     }
+    /PRIVATE_KEY:/ { print; next }
+    /^[^[:space:]]/ { inside_environment = 0 } # 退出 environment 块
     { print }
-    END {
-      if (replaced == 0) {
-        print "未找到 RPCS 字段，未进行替换。"
-        exit 1
-      }
-    }
     ' "$yml_file" > "$yml_file.tmp" && mv "$yml_file.tmp" "$yml_file"
 
     # 删除对应的容器
