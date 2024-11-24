@@ -47,16 +47,23 @@ for index in "${target_indices[@]}"; do
   if [[ -d "$folder" && -f "$yml_file" ]]; then
     echo "正在处理文件夹: $folder"
 
-    # 提取并替换 RPCS 行
-    rpcs_line=$(grep 'RPCS:' "$yml_file")
+    # 创建临时文件
+    temp_file=$(mktemp)
 
-    if [[ -n "$rpcs_line" ]]; then
-      # 替换整行 RPCS 内容
-      sed -i "s|^\s*RPCS:.*|      RPCS: '$new_rpcs'|g" "$yml_file"
-      echo "已成功替换 $yml_file 中的 RPCS 行"
-    else
-      echo "未找到 $yml_file 中的 RPCS 行，跳过替换"
-    fi
+    # 逐行读取并修改文件
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^[[:space:]]*RPCS: ]]; then
+        # 如果检测到 RPCS 行，替换为新内容
+        echo "      RPCS: '$new_rpcs'" >> "$temp_file"
+      else
+        # 保留其他行
+        echo "$line" >> "$temp_file"
+      fi
+    done < "$yml_file"
+
+    # 替换原文件为修改后的临时文件
+    mv "$temp_file" "$yml_file"
+    echo "已成功替换 $yml_file 中的 RPCS 行"
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
