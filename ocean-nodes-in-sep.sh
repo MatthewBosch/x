@@ -99,7 +99,7 @@ services:
       P2P_ipV6BindWsPort: '$p2p_ipv6_ws_port'
       P2P_ANNOUNCE_ADDRESSES: '["/ip4/$ip_address/tcp/$p2p_ipv4_tcp_port", "/ip4/$ip_address/ws/tcp/$p2p_ipv4_ws_port"]'
     networks:
-      - ocean_network
+      - ocean_network_${current_index}
     depends_on:
       - typesense
 
@@ -111,7 +111,7 @@ services:
     networks:
       - ocean_network
     volumes:
-      - typesense-data:/data
+      - typesense-data-${current_index}:/data
     command: '--data-dir /data --api-key=xyz'
 
 volumes:
