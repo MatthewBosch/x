@@ -22,11 +22,11 @@ for ((i = 1; i <= yml_count; i++)); do
   while [[ -z "$wallet_info" ]]; do
     read -p "Wallet $i: " wallet_info
   done
-  
-  # 使用正则表达式提取公钥和私钥，确保格式正确
-  public_key=$(echo "$wallet_info" | grep -oP 'Public Key: 0x[a-fA-F0-9]{40}' | cut -d ' ' -f 3)
-  private_key=$(echo "$wallet_info" | grep -oP 'Private Key: 0x[a-fA-F0-9]{64}' | cut -d ' ' -f 3)
-  
+
+  # 使用正则表达式提取公钥和私钥
+  public_key=$(echo "$wallet_info" | grep -oP 'Public Key:\s*0x[a-fA-F0-9]{40}' | awk -F ': ' '{print $2}')
+  private_key=$(echo "$wallet_info" | grep -oP 'Private Key:\s*0x[a-fA-F0-9]{64}' | awk -F ': ' '{print $2}')
+
   # 检查公钥和私钥是否提取成功
   if [[ -z "$public_key" || -z "$private_key" ]]; then
     echo "输入格式有误，请确保格式为: Wallet X: Public Key: 0x..., Private Key: 0x..."
@@ -56,17 +56,17 @@ for ((i = 0; i < yml_count; i++)); do
   typesense_port=$((28208 + (current_index - 1) * 10))
 
   # 获取对应的钱包地址
-  evm_address=$(echo "${wallets[$((i + 1))]}" | cut -d ' ' -f 3)
+  evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
 
   # 去除 EVM 地址中可能多余的逗号
-  evm_address=$(echo "$evm_address" | sed 's/,$//')
+  evm_address=$(echo $evm_address | sed 's/,$//')
 
   # 创建对应的文件夹
   folder="ocean$current_index"
-  mkdir -p "$folder"
+  mkdir -p $folder
 
   # 创建 docker-compose.yml 文件
-  cat > "$folder/docker-compose.yml" <<EOL
+  cat > $folder/docker-compose.yml <<EOL
 services:
   ocean-node:
     image: oceanprotocol/ocean-node:latest
@@ -81,7 +81,7 @@ services:
       - "$p2p_ipv6_ws_port:$p2p_ipv6_ws_port"
     environment:
       PRIVATE_KEY: '${wallets[$((i + 1))]#*, Private Key: }'
-      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'      
+      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'
       DB_URL: 'http://typesense:8108/?apiKey=xyz'
       IPFS_GATEWAY: 'https://ipfs.io/'
       ARWEAVE_GATEWAY: 'https://arweave.net/'
@@ -144,7 +144,7 @@ while true; do
       for ((i = 0; i < yml_count; i++)); do
         current_index=$((start_index + i))
         folder="ocean$current_index"
-        cd "$folder"
+        cd $folder
         echo "正在使用 $docker_cmd up -d 在文件夹: $folder"
         $docker_cmd up -d
         cd ..
