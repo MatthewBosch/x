@@ -13,7 +13,7 @@ read -p "请输入需要操作的编号范围（例如 1,2-5,9）: " input_range
 expand_ranges() {
   local ranges="$1"
   local expanded=()
-  
+
   # 使用逗号分隔每个范围
   IFS=',' read -ra parts <<< "$ranges"
   for part in "${parts[@]}"; do
@@ -47,9 +47,16 @@ for index in "${target_indices[@]}"; do
   if [[ -d "$folder" && -f "$yml_file" ]]; then
     echo "正在处理文件夹: $folder"
 
-    # 替换 docker-compose.yml 中的 RPCS 内容
-    # 搜索到 RPCS: 并替换整行内容
-    sed -i "s|^\s*RPCS:.*|      RPCS: '$new_rpcs'|g" "$yml_file"
+    # 提取并替换 RPCS 行
+    rpcs_line=$(grep 'RPCS:' "$yml_file")
+
+    if [[ -n "$rpcs_line" ]]; then
+      # 替换整行 RPCS 内容
+      sed -i "s|^\s*RPCS:.*|      RPCS: '$new_rpcs'|g" "$yml_file"
+      echo "已成功替换 $yml_file 中的 RPCS 行"
+    else
+      echo "未找到 $yml_file 中的 RPCS 行，跳过替换"
+    fi
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
