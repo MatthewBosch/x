@@ -21,26 +21,17 @@ for ((i = 1; i <= yml_count; i++)); do
   wallet_info=""
   while [[ -z "$wallet_info" ]]; do
     read -p "Wallet $i: " wallet_info
-
-    # 清理重复的 "Wallet X: Wallet Y:"
-    wallet_info=$(echo "$wallet_info" | sed -E 's/^Wallet [0-9]+:\s*Wallet [0-9]+:/Wallet \1:/')
-
-    # 跳过空行或无效输入
-    if [[ -z "$wallet_info" ]]; then
-      echo "输入为空，请重新输入。"
-      continue
-    fi
-
-    # 使用正则表达式提取 Public Key 和 Private Key
-    public_key=$(echo "$wallet_info" | grep -oiP 'Public Key:\s*0x[a-fA-F0-9]{40}' | sed 's/Public Key:\s*//I')
-    private_key=$(echo "$wallet_info" | grep -oiP 'Private Key:\s*0x[a-fA-F0-9]{64}' | sed 's/Private Key:\s*//I')
-
-    # 检查提取结果是否为空
-    if [[ -z "$public_key" || -z "$private_key" ]]; then
-      echo "输入格式有误，请确保格式为: Wallet X: Public Key: 0x..., Private Key: 0x..."
-      wallet_info=""
-    fi
   done
+  
+  # 使用正则表达式提取公钥和私钥，确保格式正确
+  public_key=$(echo "$wallet_info" | grep -oP 'Public Key: 0x[a-fA-F0-9]{40}' | cut -d ' ' -f 3)
+  private_key=$(echo "$wallet_info" | grep -oP 'Private Key: 0x[a-fA-F0-9]{64}' | cut -d ' ' -f 3)
+  
+  # 检查公钥和私钥是否提取成功
+  if [[ -z "$public_key" || -z "$private_key" ]]; then
+    echo "输入格式有误，请确保格式为: Wallet X: Public Key: 0x..., Private Key: 0x..."
+    exit 1
+  fi
 
   # 将提取到的钱包信息存入数组
   wallets[$i]="Public Key: $public_key, Private Key: $private_key"
@@ -64,19 +55,18 @@ for ((i = 0; i < yml_count; i++)); do
   # 计算 Typesense 端口
   typesense_port=$((28208 + (current_index - 1) * 10))
 
-  # 获取对应的钱包地址和私钥
-  evm_address=$(echo ${wallets[$((i + 1))]} | cut -d ' ' -f 3)
-  evm_private_key=$(echo ${wallets[$((i + 1))]} | sed 's/.*Private Key: //')
+  # 获取对应的钱包地址
+  evm_address=$(echo "${wallets[$((i + 1))]}" | cut -d ' ' -f 3)
 
   # 去除 EVM 地址中可能多余的逗号
-  evm_address=$(echo $evm_address | sed 's/,$//')
+  evm_address=$(echo "$evm_address" | sed 's/,$//')
 
   # 创建对应的文件夹
   folder="ocean$current_index"
-  mkdir -p $folder
+  mkdir -p "$folder"
 
   # 创建 docker-compose.yml 文件
-  cat > $folder/docker-compose.yml <<EOL
+  cat > "$folder/docker-compose.yml" <<EOL
 services:
   ocean-node:
     image: oceanprotocol/ocean-node:latest
@@ -90,12 +80,43 @@ services:
       - "$p2p_ipv6_tcp_port:$p2p_ipv6_tcp_port"
       - "$p2p_ipv6_ws_port:$p2p_ipv6_ws_port"
     environment:
-      PRIVATE_KEY: '$evm_private_key'
+      PRIVATE_KEY: '${wallets[$((i + 1))]#*, Private Key: }'
+      RPCS: '{"1":{"rpc":"https://ethereum-rpc.publicnode.com","fallbackRPCs":["https://rpc.ankr.com/eth","https://1rpc.io/eth","https://eth.api.onfinality.io/public"],"chainId":1,"network":"mainnet","chunkSize":100},"10":{"rpc":"https://mainnet.optimism.io","fallbackRPCs":["https://optimism-mainnet.public.blastapi.io","https://rpc.ankr.com/optimism","https://optimism-rpc.publicnode.com"],"chainId":10,"network":"optimism","chunkSize":100},"137":{"rpc":"https://polygon-rpc.com/","fallbackRPCs":["https://polygon-mainnet.public.blastapi.io","https://1rpc.io/matic","https://rpc.ankr.com/polygon"],"chainId":137,"network":"polygon","chunkSize":100},"23294":{"rpc":"https://sapphire.oasis.io","fallbackRPCs":["https://1rpc.io/oasis/sapphire"],"chainId":23294,"network":"sapphire","chunkSize":100},"23295":{"rpc":"https://testnet.sapphire.oasis.io","chainId":23295,"network":"sapphire-testnet","chunkSize":100},"11155111":{"rpc":"https://eth-sepolia.public.blastapi.io","fallbackRPCs":["https://1rpc.io/sepolia","https://eth-sepolia.g.alchemy.com/v2/demo"],"chainId":11155111,"network":"sepolia","chunkSize":100},"11155420":{"rpc":"https://sepolia.optimism.io","fallbackRPCs":["https://endpoints.omniatech.io/v1/op/sepolia/public","https://optimism-sepolia.blockpi.network/v1/rpc/public"],"chainId":11155420,"network":"optimism-sepolia","chunkSize":100}}'      
+      DB_URL: 'http://typesense:8108/?apiKey=xyz'
+      IPFS_GATEWAY: 'https://ipfs.io/'
+      ARWEAVE_GATEWAY: 'https://arweave.net/'
+      INTERFACES: '["HTTP","P2P"]'
       ALLOWED_ADMINS: '["$evm_address"]'
+      DASHBOARD: 'true'
       HTTP_API_PORT: '$ocean_http_port'
+      P2P_ENABLE_IPV4: 'true'
+      P2P_ENABLE_IPV6: 'false'
+      P2P_ipV4BindAddress: '0.0.0.0'
+      P2P_ipV4BindTcpPort: '$p2p_ipv4_tcp_port'
+      P2P_ipV4BindWsPort: '$p2p_ipv4_ws_port'
+      P2P_ipV6BindAddress: '::'
+      P2P_ipV6BindTcpPort: '$p2p_ipv6_tcp_port'
+      P2P_ipV6BindWsPort: '$p2p_ipv6_ws_port'
       P2P_ANNOUNCE_ADDRESSES: '["/ip4/$ip_address/tcp/$p2p_ipv4_tcp_port", "/ip4/$ip_address/ws/tcp/$p2p_ipv4_ws_port"]'
     networks:
       - ocean_network
+    depends_on:
+      - typesense
+
+  typesense:
+    image: typesense/typesense:26.0
+    container_name: typesense-$current_index
+    ports:
+      - "$typesense_port:$typesense_port"
+    networks:
+      - ocean_network
+    volumes:
+      - typesense-data:/data
+    command: '--data-dir /data --api-key=xyz'
+
+volumes:
+  typesense-data:
+    driver: local
 
 networks:
   ocean_network:
@@ -105,4 +126,38 @@ EOL
   echo "已生成文件: $folder/docker-compose.yml"
 done
 
-echo "所有 yml 文件生成完毕。"
+# 确保用户输入 yes 或 no 之前不会跳过
+while true; do
+  read -p "是否执行生成的 yml 文件？(yes/no): " execute_choice
+  case $execute_choice in
+    [Yy]* )
+      # 检查系统上是否有 `docker-compose` 或 `docker compose`
+      if command -v docker-compose &> /dev/null; then
+        docker_cmd="docker-compose"
+      elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+        docker_cmd="docker compose"
+      else
+        echo "未检测到 docker-compose 或 docker compose，无法继续执行。"
+        exit 1
+      fi
+
+      for ((i = 0; i < yml_count; i++)); do
+        current_index=$((start_index + i))
+        folder="ocean$current_index"
+        cd "$folder"
+        echo "正在使用 $docker_cmd up -d 在文件夹: $folder"
+        $docker_cmd up -d
+        cd ..
+      done
+      echo "所有 yml 文件已执行完毕。"
+      break
+      ;;
+    [Nn]* )
+      echo "yml 文件已生成，但未执行。"
+      break
+      ;;
+    * )
+      echo "请输入 'yes' 或 'no'。"
+      ;;
+  esac
+done
