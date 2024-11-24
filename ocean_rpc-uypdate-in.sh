@@ -43,13 +43,8 @@ for index in "${target_indices[@]}"; do
   folder="ocean$index"
   yml_file="$folder/docker-compose.yml"
 
-  echo "[INFO] 检查文件夹和文件: $folder/$yml_file"
-
   # 检查文件夹和文件是否存在
   if [[ -d "$folder" && -f "$yml_file" ]]; then
-    echo "[INFO] 正在处理文件夹: $folder"
-    echo "[INFO] 目标文件: $yml_file"
-
     # 创建临时文件
     temp_file=$(mktemp)
 
@@ -63,7 +58,6 @@ for index in "${target_indices[@]}"; do
         indentation="${BASH_REMATCH[1]}"
         # 替换为新的 RPCS 内容，保留缩进
         echo "${indentation}RPCS: '$new_rpcs'" >> "$temp_file"
-        echo "[INFO] 替换 RPCS 行：$line"
         found_rpcs_line=true
       else
         # 保留其他行
@@ -72,27 +66,20 @@ for index in "${target_indices[@]}"; do
     done < "$yml_file"
 
     if [[ "$found_rpcs_line" == false ]]; then
-      echo "[WARNING] 未找到 RPCS 行，文件未被修改: $yml_file"
-    else
-      echo "[INFO] 成功找到并替换 RPCS 行。"
+      echo "[WARNING] 未找到 RPCS 行，跳过修改: $yml_file"
+      continue
     fi
 
     # 将修改写回原文件
-    if [[ -s "$temp_file" ]]; then
-      mv "$temp_file" "$yml_file" && echo "[INFO] 文件已成功写入: $yml_file" || echo "[ERROR] 写入文件失败: $yml_file"
-    else
-      echo "[ERROR] 临时文件为空，未写入任何内容: $yml_file"
-    fi
+    mv "$temp_file" "$yml_file"
 
     # 删除对应的容器
     ocean_node_container="ocean-node-$index"
     typesense_container="typesense-$index"
 
-    echo "[INFO] 删除容器: $ocean_node_container 和 $typesense_container"
-    docker rm -f "$ocean_node_container" "$typesense_container" 2>/dev/null
+    docker rm -f "$ocean_node_container" "$typesense_container" >/dev/null 2>&1
 
     # 重新启动 docker-compose
-    echo "[INFO] 重新启动容器: $folder"
     cd "$folder"
     if command -v docker-compose &> /dev/null; then
       docker-compose up -d
@@ -102,7 +89,8 @@ for index in "${target_indices[@]}"; do
       echo "[ERROR] 未检测到 docker-compose 或 docker compose，无法启动容器。"
       exit 1
     fi
-    cd - &> /dev/null
+    cd - >/dev/null
+    echo "[INFO] 成功更新并重启容器：ocean$index"
   else
     echo "[WARNING] 文件夹 $folder 或文件 $yml_file 不存在，跳过。"
   fi
