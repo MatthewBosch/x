@@ -26,7 +26,7 @@ expand_ranges() {
         expanded+=("$i")
       done
     else
-      echo "无效的输入范围: $part"
+      echo "[ERROR] 无效的输入范围: $part"
       exit 1
     fi
   done
@@ -43,10 +43,12 @@ for index in "${target_indices[@]}"; do
   folder="ocean$index"
   yml_file="$folder/docker-compose.yml"
 
+  echo "[INFO] 检查文件夹和文件: $folder/$yml_file"
+
   # 检查文件夹和文件是否存在
   if [[ -d "$folder" && -f "$yml_file" ]]; then
-    echo "正在处理文件夹: $folder"
-    echo "目标文件: $yml_file"
+    echo "[INFO] 正在处理文件夹: $folder"
+    echo "[INFO] 目标文件: $yml_file"
 
     # 创建临时文件
     temp_file=$(mktemp)
