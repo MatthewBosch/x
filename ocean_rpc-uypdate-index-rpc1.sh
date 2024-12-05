@@ -50,38 +50,44 @@ for index in "${target_indices[@]}"; do
 
     # 是否找到 RPCS 和 ALLOWED_ADMINS 行的标志
     found_rpcs_line=false
-    added_indexer_networks=false
+    allowed_admins_block=false
+    found_indexer_networks=false
 
     # 逐行读取并修改文件
     while IFS= read -r line; do
-      # 替换 RPCS 行
+      # 检测 RPCS 行并替换
       if [[ "$line" =~ ^([[:space:]]*)RPCS: ]]; then
         # 提取前面的缩进
         indentation="${BASH_REMATCH[1]}"
         # 替换为新的 RPCS 内容，保留缩进
         echo "${indentation}RPCS: '$new_rpcs'" >> "$temp_file"
         found_rpcs_line=true
+      # 检测 ALLOWED_ADMINS 行
       elif [[ "$line" =~ ^([[:space:]]*)ALLOWED_ADMINS: ]]; then
         # 保留 ALLOWED_ADMINS 行
         echo "$line" >> "$temp_file"
-        # 在 ALLOWED_ADMINS 行后插入 INDEXER_NETWORKS 行
-        echo "${BASH_REMATCH[1]}INDEXER_NETWORKS: '[]'" >> "$temp_file"
-        added_indexer_networks=true
+        allowed_admins_block=true
+      # 检测 INDEXER_NETWORKS 行是否已经存在
+      elif [[ "$line" =~ ^([[:space:]]*)INDEXER_NETWORKS: ]]; then
+        # 如果已经存在，标记为已找到，直接保留
+        echo "$line" >> "$temp_file"
+        found_indexer_networks=true
       else
         # 保留其他行
         echo "$line" >> "$temp_file"
+      fi
+
+      # 如果 ALLOWED_ADMINS 行已经处理完毕，且没有找到 INDEXER_NETWORKS 行，添加它
+      if [[ "$allowed_admins_block" == true && "$found_indexer_networks" == false ]]; then
+        echo "${BASH_REMATCH[1]}INDEXER_NETWORKS: '[]'" >> "$temp_file"
+        found_indexer_networks=true
+        allowed_admins_block=false
       fi
     done < "$yml_file"
 
     # 检查是否找到 RPCS 行
     if [[ "$found_rpcs_line" == false ]]; then
       echo "[WARNING] 未找到 RPCS 行，跳过修改: $yml_file"
-      continue
-    fi
-
-    # 检查是否添加了 INDEXER_NETWORKS
-    if [[ "$added_indexer_networks" == false ]]; then
-      echo "[WARNING] 未找到 ALLOWED_ADMINS 行，未插入 INDEXER_NETWORKS: $yml_file"
       continue
     fi
 
