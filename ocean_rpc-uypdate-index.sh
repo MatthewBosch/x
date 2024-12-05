@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# 清屏
+clear
+
+# 接收用户输入的编号范围（例如 1,2-5,9）
+read -p "请输入需要操作的编号范围（例如 1,2-5,9）: " input_ranges
+
+# 展开编号范围到具体的编号列表
+expand_ranges() {
+  local ranges="$1"
+  local expanded=()
+
+  # 使用逗号分隔每个范围
+  IFS=',' read -ra parts <<< "$ranges"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      # 单个编号
+      expanded+=("$part")
+    elif [[ "$part" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      # 范围编号，展开为具体编号
+      for ((i=${BASH_REMATCH[1]}; i<=${BASH_REMATCH[2]}; i++)); do
+        expanded+=("$i")
+      done
+    else
+      echo "[ERROR] 无效的输入范围: $part"
+      exit 1
+    fi
+  done
+
+  # 返回展开的编号列表
+  echo "${expanded[@]}"
+}
+
+# 展开输入的编号范围为具体编号列表
+target_indices=($(expand_ranges "$input_ranges"))
+
+# 遍历每个目标编号
+for index in "${target_indices[@]}"; do
+  folder="ocean$index"
+  yml_file="$folder/docker-compose.yml"
+
+  # 检查文件夹和文件是否存在
+  if [[ -d "$folder" && -f "$yml_file" ]]; then
+    # 创建临时文件
+    temp_file=$(mktemp)
+
+    # 是否找到 ALLOWED_ADMINS 行的标志
+    found_allowed_admins_line=false
+
+    # 逐行读取并修改文件
+    while IFS= read -r line; do
+      # 检查 ALLOWED_ADMINS 行
+      if [[ "$line" =~ ^([[:space:]]*)ALLOWED_ADMINS: ]]; then
+        # 提取前面的缩进
+        indentation="${BASH_REMATCH[1]}"
+        # 保留 ALLOWED_ADMINS 行
+        echo "$line" >> "$temp_file"
+        # 在 ALLOWED_ADMINS 行后插入 INDEXER_NETWORKS 行
+        echo "${indentation}INDEXER_NETWORKS: '[]'" >> "$temp_file"
+        found_allowed_admins_line=true
+      else
+        # 保留其他行
+        echo "$line" >> "$temp_file"
+      fi
+    done < "$yml_file"
+
+    if [[ "$found_allowed_admins_line" == false ]]; then
+      echo "[WARNING] 未找到 ALLOWED_ADMINS 行，跳过修改: $yml_file"
+      continue
+    fi
+
+    # 将修改写回原文件
+    mv "$temp_file" "$yml_file"
+
+    # 删除对应的容器
+    ocean_node_container="ocean-node-$index"
+    typesense_container="typesense-$index"
+
+    docker rm -f "$ocean_node_container" "$typesense_container" >/dev/null 2>&1
+
+    # 重新启动 docker-compose
+    cd "$folder"
+    if command -v docker-compose &> /dev/null; then
+      docker-compose up -d
+    elif command -v docker &> /dev/null && docker compose version &> /dev/null; then
+      docker compose up -d
+    else
+      echo "[ERROR] 未检测到 docker-compose 或 docker compose，无法启动容器。"
+      exit 1
+    fi
+    cd - >/dev/null
+    echo "[INFO] 成功更新并重启容器：ocean$index"
+  else
+    echo "[WARNING] 文件夹 $folder 或文件 $yml_file 不存在，跳过。"
+  fi
+done
+
+echo "[INFO] 所有操作完成！"
