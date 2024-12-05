@@ -38,7 +38,7 @@ for ((i = 1; i <= yml_count; i++)); do
 done
 
 # 基本端口号
-base_port=16010
+base_port=36010
 
 # 循环生成 yml 文件
 for ((i = 0; i < yml_count; i++)); do
