@@ -35,16 +35,23 @@ expand_ranges() {
 # 展开输入的编号范围为具体编号列表
 target_indices=($(expand_ranges "$input_ranges"))
 
-# 遍历每个目标编号并执行 docker restart
-for index in "${target_indices[@]}"; do
+# 并行重启容器
+restart_container() {
+  local index="$1"
   typesense_container="typesense-$index"
   ocean_node_container="ocean-node-$index"
 
   echo "[INFO] 重启容器: $typesense_container 和 $ocean_node_container"
-  
-  # 执行 docker restart
   docker restart "$typesense_container" >/dev/null 2>&1 && echo "  - $typesense_container 已成功重启" || echo "  - [ERROR] 无法重启 $typesense_container"
   docker restart "$ocean_node_container" >/dev/null 2>&1 && echo "  - $ocean_node_container 已成功重启" || echo "  - [ERROR] 无法重启 $ocean_node_container"
+}
+
+# 后台运行多线程
+for index in "${target_indices[@]}"; do
+  restart_container "$index" &
 done
 
-echo "[INFO] 操作完成！"
+# 等待所有后台任务完成
+wait
+
+echo "[INFO] 所有操作完成！"
