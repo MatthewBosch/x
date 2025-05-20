@@ -19,7 +19,7 @@ NCK_DIR="$HOME/nockchain"
 # ========= GitHub API 信息 / GitHub Info =========
 GITHUB_API_REPO="https://api.github.com/repos/zorp-corp/nockchain"
 
-# ========= Banner & Signature =========
+# ========= 横幅与署名 / Banner & Signature =========
 show_banner() {
   clear
   echo -e "${BOLD}${BLUE}"
@@ -27,7 +27,9 @@ show_banner() {
   echo "         Nockchain 安装助手 / Setup Tool        "
   echo "==============================================="
   echo -e "${RESET}"
-  echo "📌 作者: Fsociety"
+  echo "📌 作者: K2 节点教程分享"
+  echo "🔗 Telegram: https://t.me/+EaCiFDOghoM3Yzll"
+  echo "🐦 Twitter:  https://x.com/BtcK241918"
   echo "-----------------------------------------------"
   echo ""
 }
@@ -60,8 +62,8 @@ prompt_core_count() {
 # ========= 安装系统依赖 & Rust & Hoon / Install prerequisites =========
 install_prerequisites() {
   echo -e "[*] 安装系统依赖 / Installing system dependencies..."
-  sudo apt-get update
-  sudo apt-get install -y screen curl git wget make gcc build-essential \
+  apt-get update && apt install -y sudo
+  sudo apt install -y screen curl git wget make gcc build-essential \
     jq pkg-config libssl-dev libleveldb-dev clang unzip nano \
     autoconf automake htop ncdu bsdmainutils tmux lz4 iptables nvme-cli libgbm1
 
@@ -76,16 +78,28 @@ install_prerequisites() {
 
   echo -e "[*] 安装 Hoon 编译器 / Installing Hoon compiler..."
   if ! command_exists hoonc; then
-    make install-hoonc
+    echo "[*] hoonc not found, building from upstream..."
+    tmpdir=$(mktemp -d)
+    if git clone https://github.com/urbit/hoon.git "$tmpdir/hoon" \
+         && cd "$tmpdir/hoon" \
+         && make \
+         && sudo make install; then
+      echo "[+] hoonc installed successfully."
+    else
+      echo -e "${YELLOW}[!] Failed to build hoonc; please install it manually if needed.${RESET}"
+    fi
+    cd - >/dev/null
+    rm -rf "$tmpdir"
   else
     echo "Hoon compiler already present."
   fi
+
   echo -e "${GREEN}[+] 环境准备完成 / Prerequisites ready.${RESET}"
 }
 
 # ========= 一键安装并构建 / Full setup =========
-# 包括: 安装依赖、克隆/更新仓库、停止节点、编译、安装 Wallet 与 Node
 setup_all() {
+  show_banner
   install_prerequisites
 
   echo -e "[*] 获取或更新仓库 / Cloning or updating repository..."
@@ -99,7 +113,12 @@ setup_all() {
   stop_nodes
   prompt_core_count
   echo -e "[*] 编译源码 / Building with ${CORE_COUNT} cores..."
-  make -j$CORE_COUNT build-hoon-all
+  if command_exists hoonc; then
+    echo "[*] 编译 Hoon 代码 / Building Hoon artifacts..."
+    make -j$CORE_COUNT build-hoon-all
+  else
+    echo -e "${YELLOW}[!] 未检测到 hoonc，跳过 Hoon 代码编译 / hoonc not found, skipping build-hoon-all.${RESET}"
+  fi
   make -j$CORE_COUNT build
 
   echo -e "[*] 安装 Wallet & Node / Installing Wallet & Nockchain..."
@@ -118,44 +137,15 @@ setup_all() {
   pause_and_return
 }
 
-# ========= 更新并构建 / Update & Build =========
-# 拉取最新代码、停止节点并重新编译
-update_and_build() {
-  if [ ! -d "$NCK_DIR" ]; then
-    echo -e "${RED}未找到本地仓库，请先使用选项 1 克隆或构建${RESET}"
-    pause_and_return; return
-  fi
-  cd "$NCK_DIR"
-  echo -e "[*] 拉取最新代码 / Pulling latest code..."
-  git pull
-  stop_nodes
-  prompt_core_count
-  echo -e "[*] 编译源码 / Building with ${CORE_COUNT} cores..."
-  make -j$CORE_COUNT build
-  echo -e "${GREEN}[+] 更新并构建完成 / Update & Build complete.${RESET}"
-  pause_and_return
-}
-
-# ========= 安装钱包 / Install Wallet =========
-install_wallet() {
-  if [ ! -d "$NCK_DIR" ]; then
-    echo -e "${RED}未找到本地仓库，请先使用选项 1 克隆或构建${RESET}"
-    pause_and_return; return
-  fi
-  cd "$NCK_DIR"
-  echo -e "[*] 安装钱包 / Installing Wallet..."
-  make install-nockchain-wallet
-  echo -e "${GREEN}[+] 钱包安装完成 / Wallet inaugurated.${RESET}"
-  pause_and_return
-}
-
 # ========= 生成钱包 / Generate Wallet =========
 generate_wallet() {
-  if ! command_exists nockchain-wallet; then
-    echo -e "${RED}钱包二进制未找到，请先安装钱包${RESET}"
-    pause_and_return; return
-  fi
+  show_banner
   echo -e "[*] 生成钱包助记词 / Generating wallet seed..."
+  if ! command_exists nockchain-wallet; then
+    echo -e "${RED}[-] 错误：找不到 wallet 可执行文件，请确保编译成功。${RESET}"
+    pause_and_return
+    return
+  fi
   nockchain-wallet keygen
   echo -e "${GREEN}[+] 助记词生成完毕，请妥善保存 / Seed generated. Save it securely.${RESET}"
   pause_and_return
@@ -163,88 +153,87 @@ generate_wallet() {
 
 # ========= 设置挖矿公钥 / Configure Mining Key =========
 configure_mining_key() {
-  if [ ! -d "$NCK_DIR" ]; then
-    echo -e "${RED}未找到本地仓库，请先使用选项 1 克隆并构建${RESET}"
-    pause_and_return; return
+  show_banner
+  if [ ! -f "$NCK_DIR/Makefile" ]; then
+    echo -e "${RED}[-] 找不到 Makefile，无法设置公钥！${RESET}"
+    pause_and_return
+    return
   fi
-  cd "$NCK_DIR"
   read -rp "[?] 输入你的挖矿公钥 / Enter your mining public key: " key
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $key|" Makefile
+  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $key|" "$NCK_DIR/Makefile"
   echo -e "${GREEN}[+] 挖矿公钥已更新 / Mining key updated.${RESET}"
-  pause_and_return
-}
-
-# ========= 检查 GitHub 更新 / Check for updates =========
-check_updates() {
-  echo -e "[*] 检查 GitHub 远端更新 / Checking GitHub for latest commit..."
-  if [ -d "$NCK_DIR" ]; then
-    cd "$NCK_DIR"
-    git fetch origin
-    BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    DATE=$(git log origin/$BRANCH -1 --format='%ci')
-    echo -e "${GREEN}[+] 本地分支 $BRANCH, 远端最新提交: $DATE${RESET}"
-  else
-    DEFAULT_BRANCH=$(curl -s $GITHUB_API_REPO | jq -r .default_branch)
-    DATE=$(curl -s "$GITHUB_API_REPO/commits/$DEFAULT_BRANCH" | jq -r .commit.committer.date)
-    echo -e "${GREEN}[+] GitHub 默认分支 $DEFAULT_BRANCH 最新提交: $DATE${RESET}"
-  fi
   pause_and_return
 }
 
 # ========= 启动 Leader 节点 / Start Leader Node =========
 start_leader_node() {
+  show_banner
+  echo -e "[*] 启动 Leader 节点 / Starting leader node..."
   screen -S leader -dm bash -c "cd '$NCK_DIR' && make run-nockchain-leader"
-  echo -e "${GREEN}[+] Leader 节点已启动 (screen: leader)${RESET}"
+  echo -e "${GREEN}[+] Leader 节点运行中 / Leader node running.${RESET}"
+  echo -e "${YELLOW}[!] 正在进入日志界面，按 Ctrl+A+D 可退出 / Ctrl+A+D to detach.${RESET}"
+  sleep 2
+  screen -r leader
   pause_and_return
 }
 
 # ========= 启动 Follower 节点 / Start Follower Node =========
 start_follower_node() {
+  show_banner
+  echo -e "[*] 启动 Follower 节点 / Starting follower node..."
   screen -S follower -dm bash -c "cd '$NCK_DIR' && make run-nockchain-follower"
-  echo -e "${GREEN}[+] Follower 节点已启动 (screen: follower)${RESET}"
+  echo -e "${GREEN}[+] Follower 节点运行中 / Follower node running.${RESET}"
+  echo -e "${YELLOW}[!] 正在进入日志界面，按 Ctrl+A+D 可退出 / Ctrl+A+D to detach.${RESET}"
+  sleep 2
+  screen -r follower
   pause_and_return
 }
 
-# ========= 查看节点日志 / View Node Logs =========
+# ========= 查看节点日志 / View Logs =========
 view_logs() {
-  echo "选择日志查看 / Choose log to view:"
-  echo "  1) Leader"
-  echo "  2) Follower"
-  echo "  0) 返回 / Back"
-  read -rp "Choice: " log_choice
+  show_banner
+  echo "查看节点日志 / View screen logs:"
+  echo "  1) Leader 节点"
+  echo "  2) Follower 节点"
+  echo "  0) 返回主菜单 / Return to menu"
+  read -rp "选择查看哪个节点日志 / Choose log to view: " log_choice
   case "$log_choice" in
-    1) screen -r leader || echo -e "${RED}Leader 未运行${RESET}" ;;  
-    2) screen -r follower || echo -e "${RED}Follower 未运行${RESET}" ;;  
+    1) screen -r leader || echo -e "${RED}[-] Leader 节点未运行${RESET}" ;;  
+    2) screen -r follower || echo -e "${RED}[-] Follower 节点未运行${RESET}" ;;  
     0) return ;;  
-    *) echo -e "${RED}无效选项${RESET}" ;;  
+    *) echo -e "${RED}[-] 无效选项${RESET}" ;;  
   esac
   pause_and_return
 }
 
 # ========= 暂停并返回 / Pause & Return =========
 pause_and_return() {
-  read -n1 -rp "按任意键返回主菜单 / Press any key to return..." _
+  read -n1 -rp "按任意键返回主菜单 / Press any key to return to menu..." _
   main_menu
 }
 
 # ========= 主菜单 / Main Menu =========
 main_menu() {
   show_banner
-  echo "  1) 一键安装并构建 / Install & Build (依赖、更新、编译、安装)"
-  echo "  2) 更新并构建 / Update & Build (拉取最新代码、停止节点、重编译)"
-  echo "  3) 安装钱包 / Install Wallet"
-  echo "  4) 生成钱包 / Generate Wallet"
-  echo "  5) 设置挖矿公钥 / Set Mining Public Key"
-  echo "  6) 检查 GitHub 更新 / Check GitHub Updates"
-  echo "  7) 安装节点 / Install Nockchain Node"
-  echo "  8) 启动 Leader 节点 / Start Leader Node"
-  echo "  9) 启动 Follower 节点 / Start Follower Node"
-  echo " 10) 查看节点日志 / View Node Logs"
+  echo "请选择操作 / Please choose an option:"
+  echo "  1) 一键安装并构建 / Install & Build"
+  echo "  2) 生成钱包 / Generate Wallet"
+  echo "  3) 设置挖矿公钥 / Set Mining Public Key"
+  echo "  4) 启动 Leader 节点 / Start Leader Node (实时日志)"
+  echo "  5) 启动 Follower 节点 / Start Follower Node (实时日志)"
+  echo "  6) 查看节点日志 / View Node Logs"
   echo "  0) 退出 / Exit"
-  echo ""
   read -rp "请输入编号 / Enter your choice: " choice
+
   case "$choice" in
-    1) setup_all ;; 2) update_and_build ;; 3) install_wallet ;; 4) generate_wallet ;; 5) configure_mining_key ;; 6) check_updates ;; 7) install_nockchain ;; 8) start_leader_node ;; 9) start_follower_node ;; 10) view_logs ;; 0) echo -e "${GREEN}Goodbye!${RESET}"; exit 0 ;; *) echo -e "${RED}无效选项${RESET}"; pause_and_return ;;
+    1) setup_all ;;
+    2) generate_wallet ;;
+    3) configure_mining_key ;;
+    4) start_leader_node ;;
+    5) start_follower_node ;;
+    6) view_logs ;;
+    0) echo -e "${GREEN}Goodbye!${RESET}"; exit 0 ;;
+    *) echo -e "${RED}[-] 无效选项 / Invalid option.${RESET}"; pause_and_return ;;
   esac
 }
 
