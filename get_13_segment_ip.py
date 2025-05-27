@@ -1,10 +1,3 @@
-"""
-@Author: Xingyu Li
-@Email:
-32402413@hzcu.edu.cn
-@Created on: 2025/3/11 15:43
-"""
-
 import time
 import os
 from azure.identity import DefaultAzureCredential
