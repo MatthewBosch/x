@@ -1,108 +1,136 @@
-#!/usr/bin/env python3
 """
-获取 Azure “13.” 段公共 IP 的并发脚本
-Author: Xingyu Li
-Created on: 2025/3/11
+@Author: Xingyu Li
+@Email:
+32402413@hzcu.edu.cn
+@Created on: 2025/3/11 15:43
 """
 
-import os
-import sys
 import time
-import random
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-from azure.identity import DefaultAzureCredential, CredentialUnavailableError
+import os
+from azure.identity import DefaultAzureCredential
 from azure.mgmt.network import NetworkManagementClient
+from azure.mgmt.network.models import PublicIPAddress
 from azure.core.exceptions import HttpResponseError
 
-# —— 从环境变量读取配置 —— #
-subscription_id   = os.getenv("AZ_SUBSCRIPTION_ID")
-resource_group    = os.getenv("AZ_RESOURCE_GROUP")
-base_ip_name      = os.getenv("AZ_IP_NAME")        # 作为前缀，例如 "temp-ip"
-location          = os.getenv("AZ_LOCATION", "eastus")
-CONCURRENT_COUNT  = int(os.getenv("CONCURRENT_COUNT", 5))
-MAX_ROUNDS        = int(os.getenv("MAX_ROUNDS", 10))
+# Azure 配置
+subscription_id =  "c205b59a-0b37-45a6-8d99-695067193564"
+resource_group = "jp-13_group"
+ip_name ="myjp13"
+location = "japaneast"
 
-# —— 日志配置 —— #
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
+# 最大尝试次数
+MAX_ATTEMPTS = 100
+# 操作之间的等待时间（秒）
+WAIT_TIME = 5
 
-def get_network_client():
-    """获取 Azure NetworkManagementClient"""
+
+def get_credentials():
+    """获取 Azure 凭证"""
     try:
-        cred = DefaultAzureCredential()
-        return NetworkManagementClient(cred, subscription_id)
-    except CredentialUnavailableError as e:
-        logging.error("无法获取 Azure 凭证: %s", e)
-        sys.exit(1)
+        return DefaultAzureCredential()
+    except Exception as e:
+        print(f"获取凭证失败: {e}")
+        exit(1)
 
-def create_one_ip(client, suffix):
-    """
-    并发创建一个 Basic + Dynamic 公共 IP
-    suffix: 用于区分资源名称
-    返回 (资源名称, IP 地址 or None)
-    """
-    name = f"{base_ip_name}-{suffix}"
+
+def get_network_client(credentials):
+    """创建网络管理客户端"""
+    return NetworkManagementClient(credentials, subscription_id)
+
+
+def get_public_ip(client):
+    """获取当前公共 IP 地址"""
     try:
+        ip_address = client.public_ip_addresses.get(resource_group, ip_name)
+        return ip_address.ip_address
+    except HttpResponseError as e:
+        print(f"获取 IP 地址时出错: {e}")
+        return None
+
+
+def delete_public_ip(client):
+    """删除公共 IP 资源"""
+    try:
+        print("正在删除公共 IP 资源...")
+        poller = client.public_ip_addresses.begin_delete(resource_group, ip_name)
+        poller.wait()
+        print("公共 IP 资源已删除")
+        return True
+    except HttpResponseError as e:
+        print(f"删除 IP 地址时出错: {e}")
+        return False
+
+
+def create_public_ip(client):
+    """创建新的公共 IP 资源"""
+    try:
+        print("正在创建新的公共 IP 资源...")
         poller = client.public_ip_addresses.begin_create_or_update(
-            resource_group, name,
+            resource_group,
+            ip_name,
             {
-                "location": location,
-                "sku": {"name": "Basic"},
-                "public_ip_allocation_method": "Dynamic",
-                "public_ip_address_version": "IPv4"
+                'location': location,
+                'sku': {
+                    'name': 'Standard'
+                },
+                'public_ip_allocation_method': 'Static',
+                'public_ip_address_version': 'IPv4'
             }
         )
-        ip_address = poller.result().ip_address
-        logging.info("资源 %s 创建完成，IP=%s", name, ip_address)
-        return name, ip_address
+        ip_address = poller.result()
+        print(f"新的公共 IP 资源已创建: {ip_address.ip_address}")
+        return ip_address.ip_address
     except HttpResponseError as e:
-        logging.warning("创建资源 %s 失败: %s", name, e)
-        return name, None
+        print(f"创建 IP 地址时出错: {e}")
+        return None
+
 
 def main():
-    # 环境变量检查
-    if not all([subscription_id, resource_group, base_ip_name]):
-        logging.error("请先设置环境变量 AZ_SUBSCRIPTION_ID、AZ_RESOURCE_GROUP 和 AZ_IP_NAME")
-        sys.exit(1)
+    """主函数"""
+    if not subscription_id or not resource_group or not ip_name:
+        print("请设置必要的环境变量：AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, AZURE_IP_NAME")
+        return
 
-    client = get_network_client()
+    print(f"Azure 配置: 订阅 ID = {subscription_id}, 资源组 = {resource_group}, IP 名称 = {ip_name}")
 
-    for round_no in range(1, MAX_ROUNDS + 1):
-        logging.info("==== 并发尝试 第 %d 轮 / 共 %d 轮 ====", round_no, MAX_ROUNDS)
+    credentials = get_credentials()
+    network_client = get_network_client(credentials)
 
-        with ThreadPoolExecutor(max_workers=CONCURRENT_COUNT) as executor:
-            # 提交并发任务
-            futures = {
-                executor.submit(create_one_ip, client, i): i
-                for i in range(CONCURRENT_COUNT)
-            }
+    current_ip = get_public_ip(network_client)
+    if current_ip:
+        print(f"当前 IP 地址: {current_ip}")
 
-            # 收集结果
-            for future in as_completed(futures):
-                suffix = futures[future]
-                name = f"{base_ip_name}-{suffix}"
-                try:
-                    _, ip = future.result()
-                except Exception as e:
-                    logging.warning("任务 %s 异常终止: %s", name, e)
-                    continue
+    attempt = 0
+    while attempt < MAX_ATTEMPTS:
+        attempt += 1
+        print(f"\n尝试 #{attempt}")
 
-                if ip and ip.startswith("13."):
-                    logging.info("✅ 成功获取 “13.” 段 IP：%s (资源 %s)", ip, name)
-                    return
+        # 删除当前 IP
+        if not delete_public_ip(network_client):
+            print("删除 IP 失败，等待后重试...")
+            time.sleep(WAIT_TIME)
+            continue
 
-        # 本轮未命中，指数退避后进入下一轮
-        backoff = min(2 ** round_no, 60)
-        delay = backoff + random.random()
-        logging.info("本轮未获取到目标 IP，等待 %.1f 秒后继续…", delay)
-        time.sleep(delay)
+        # 创建新 IP
+        time.sleep(WAIT_TIME)  # 等待一段时间确保删除操作完成
+        new_ip = create_public_ip(network_client)
 
-    logging.error("❌ 达到最大轮次 %d，仍未获取 “13.” 段 IP", MAX_ROUNDS)
-    sys.exit(1)
+        if not new_ip:
+            print("创建 IP 失败，等待后重试...")
+            time.sleep(WAIT_TIME)
+            continue
+
+        # 检查是否是 13 段 IP
+        if new_ip.startswith("13."):
+            print(f"成功获取到 13 段 IP 地址: {new_ip}")
+            break
+        else:
+            print(f"获取到的 IP {new_ip} 不是 13 段，继续尝试...")
+            time.sleep(WAIT_TIME)
+
+    if attempt >= MAX_ATTEMPTS:
+        print(f"达到最大尝试次数 {MAX_ATTEMPTS}，未能获取 13 段 IP 地址")
+
 
 if __name__ == "__main__":
     main()
