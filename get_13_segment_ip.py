@@ -6,7 +6,7 @@ from azure.mgmt.network.models import PublicIPAddress
 from azure.core.exceptions import HttpResponseError
 
 # Azure 配置
-subscription_id =  "c205b59a-0b37-45a6-8d99-695067193564"
+subscription_id =  "xxxx"
 resource_group = "jp-13_group"
 ip_name ="myjp13"
 location = "japaneast"
