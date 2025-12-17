@@ -8,8 +8,8 @@ pause () {
   echo "=============================="
   read -r
 }
-# ========= docker compose =========
-#wget -qO- https://get.docker.com/ | sh
+
+
 # ========= [A] 基础仓库 =========
 sudo apt-get update
 sudo apt-get install -y software-properties-common
