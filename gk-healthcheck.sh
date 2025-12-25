@@ -148,16 +148,19 @@ echo "✔ 时间一致 + 链同步 + 端口正常 + 版本正确"
 
 echo
 echo "===== PoC ====="
+
 if command -v jq >/dev/null 2>&1; then
   curl -s http://127.0.0.1:9200/admin/v1/nodes | jq -r '
   .[] |
   ( (.state.epoch_models | keys)[0] // (.node.models | keys)[0] ) as $m |
-  if (.state.epoch_ml_nodes[$m].poc_weight // 0) > 0 then
-    "PoC: YES\nPoC weight: \(.state.epoch_ml_nodes[$m].poc_weight)"
+  ( .state.epoch_ml_nodes[$m].poc_weight // -1 ) as $w |
+  if $w > 0 then
+    "PoC: YES\nPoC weight: \($w)"
   else
-    "PoC: NO"
+    "PoC: NO\nPoC weight: -1"
   end
   '
 else
-  echo "PoC: UNKNOWN (jq not installed)"
+  echo "PoC: UNKNOWN"
+  echo "PoC weight: -1"
 fi
