@@ -120,10 +120,11 @@ echo
 # ============================================================
 # Admin API
 # ============================================================
-echo "===== 6) Admin API ====="
-curl -s http://127.0.0.1:9200/admin/v1/nodes \
- | jq '.[] | {id:.node.id, intended:.state.intended_status, current:.state.current_status}'
-echo
+curl -s http://127.0.0.1:9200/admin/v1/nodes | jq -r '
+.[]
+| ( (.state.epoch_models | keys)[0] // (.node.models | keys)[0] ) as $m
+| "Model: \($m)\nPoC weight: \(.state.epoch_ml_nodes[$m].poc_weight // "N/A")\nTimeslot: \(.state.epoch_ml_nodes[$m].timeslot_allocation // "N/A")"
+'
 
 # ============================================================
 # 对外推理
