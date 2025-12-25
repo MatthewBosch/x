@@ -142,6 +142,22 @@ echo "===== 8) GPU ====="
 command -v nvidia-smi >/dev/null && nvidia-smi || warn "未检测到 GPU"
 echo
 
+echo
 echo "===== 结论 ====="
 echo "✔ 时间一致 + 链同步 + 端口正常 + 版本正确"
-echo "➡️ 若仍无 PoC / 分配：这是调度选择，不是节点问题"
+
+echo
+echo "===== PoC ====="
+if command -v jq >/dev/null 2>&1; then
+  curl -s http://127.0.0.1:9200/admin/v1/nodes | jq -r '
+  .[] |
+  ( (.state.epoch_models | keys)[0] // (.node.models | keys)[0] ) as $m |
+  if (.state.epoch_ml_nodes[$m].poc_weight // 0) > 0 then
+    "PoC: YES\nPoC weight: \(.state.epoch_ml_nodes[$m].poc_weight)"
+  else
+    "PoC: NO"
+  end
+  '
+else
+  echo "PoC: UNKNOWN (jq not installed)"
+fi
