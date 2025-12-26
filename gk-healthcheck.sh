@@ -36,6 +36,11 @@ if [ -z "$PUBLIC_IP" ] && [ -n "$PUBLIC_URL" ]; then
 fi
 [ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(curl -s ifconfig.me || true)"
 
+FOLLOW_MODE=0
+if [[ "${1:-}" == "--follow" ]]; then
+  FOLLOW_MODE=1
+fi
+
 echo "===== 0) 基础信息 ====="
 echo "HOST TIME:  $(date -Is)"
 echo "UTC TIME:   $(date -u -Is)"
@@ -54,33 +59,47 @@ echo "===== 2) 端口监听（宿主机） ====="
 echo
 
 # ============================================================
-# 链状态（26657） + catching_up 检查 + 你要的字段输出
+# 链状态（26657） + catching_up 检查 + 高亮输出
 # ============================================================
 echo "===== 3) 链同步状态（26657）====="
 if ! need_jq; then
   warn "未安装 jq：sudo apt-get update && sudo apt-get install -y jq"
   CHAIN_OK=0
 else
-  # status 是否可访问
   if ! check_http "26657 /status" "http://127.0.0.1:26657/status"; then
     CHAIN_OK=0
   fi
 
-  SYNC_BRIEF="$(curl -sS http://127.0.0.1:26657/status \
+  SYNC_BRIEF_RAW="$(curl -sS http://127.0.0.1:26657/status \
     | jq '.result.sync_info | {latest_block_height, catching_up, latest_block_time}' 2>/dev/null || true)"
 
-  if [ -z "$SYNC_BRIEF" ]; then
+  if [ -z "$SYNC_BRIEF_RAW" ]; then
     bad "无法解析 26657/status 的 sync_info"
     CHAIN_OK=0
   else
-    echo "$SYNC_BRIEF"
-    catching="$(echo "$SYNC_BRIEF" | jq -r '.catching_up')"
+    # 高亮 JSON（catching_up=false 绿色，否则红色）
+    catching="$(echo "$SYNC_BRIEF_RAW" | jq -r '.catching_up' 2>/dev/null || echo "")"
+    height="$(echo "$SYNC_BRIEF_RAW"   | jq -r '.latest_block_height' 2>/dev/null || echo "")"
+    btime="$(echo "$SYNC_BRIEF_RAW"    | jq -r '.latest_block_time' 2>/dev/null || echo "")"
+
+    # 颜色
+    C_KEY="\033[1;36m"   # cyan
+    C_OK="\033[1;32m"    # green
+    C_BAD="\033[1;31m"   # red
+    C_RST="\033[0m"
+
+    echo -e "{"
+    echo -e "  ${C_KEY}\"latest_block_height\"${C_RST}: \"${C_OK}${height}${C_RST}\","
     if [ "$catching" = "false" ]; then
+      echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_OK}${catching}${C_RST},"
       ok "catching_up=false（已同步）"
     else
-      bad "catching_up=$catching（未同步/追块中）"
+      echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_BAD}${catching}${C_RST},"
+      bad "catching_up=${catching:-<empty>}（未同步/追块中）"
       CHAIN_OK=0
     fi
+    echo -e "  ${C_KEY}\"latest_block_time\"${C_RST}: \"${C_OK}${btime}${C_RST}\""
+    echo -e "}"
   fi
 fi
 echo
@@ -92,7 +111,6 @@ echo "===== 4) 时间对比（宿主 / 公网 / 链 / 容器）====="
 HOST_EPOCH="$(date -u +%s)"
 echo "[HOST] epoch=$HOST_EPOCH"
 
-# --- 公网时间（HTTP Date） ---
 HTTP_DATE="$(curl -fsSI --max-time 5 https://google.com \
   | awk 'BEGIN{IGNORECASE=1}/^Date:/{sub(/^[Dd]ate:[ ]*/,"");print;exit}' || true)"
 
@@ -122,7 +140,6 @@ else
 fi
 echo
 
-# --- 链时间（latest_block_time） ---
 if need_jq && command -v python3 >/dev/null 2>&1; then
   CHAIN_TIME="$(curl -sS http://127.0.0.1:26657/status \
     | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
@@ -140,7 +157,6 @@ PY
     drift=$((HOST_EPOCH - CHAIN_EPOCH))
     abs=${drift#-}
     echo "→ Drift(host-chain): ${drift}s"
-    # 说明：这反映“最新区块时间距现在多久”，不等于系统时间错误
     if [ "$abs" -le 30 ]; then
       ok "链最新块时间差 ${abs}s（正常范围内）"
     elif [ "$abs" -le 120 ]; then
@@ -156,7 +172,6 @@ else
 fi
 echo
 
-# --- 容器时间 vs 宿主机 ---
 echo "[CONTAINERS]"
 for c in api node inference join-mlnode-308-1 join-api-1 join-inference-1; do
   if docker ps --format '{{.Names}}' | grep -qx "$c"; then
@@ -244,7 +259,7 @@ echo
 # ============================================================
 # GPU
 # ============================================================
-echo "===== 7) GPU / CUDA ====="
+echo "===== 7) GPU / Docker Runtime（重点看 join-mlnode-308-1） ====="
 
 # --- Driver & GPU ---
 if command -v nvidia-smi >/dev/null 2>&1; then
@@ -252,7 +267,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu \
     --format=csv,noheader || true
 else
-  warn "未检测到 nvidia-smi（GPU 驱动缺失）"
+  warn "未检测到 nvidia-smi（GPU 驱动缺失或此机无 GPU）"
 fi
 echo
 
@@ -265,16 +280,47 @@ else
 fi
 echo
 
-# --- CUDA Runtime (mlnode) ---
-echo "[CUDA Runtime - mlnode]"
+# --- 你要的：mlnode 容器 runtime / dev nodes / DeviceRequests ---
+echo "[mlnode runtime & GPU visibility]"
 if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
-  docker exec join-mlnode-308-1 sh -lc '
-    ldconfig -p 2>/dev/null | grep libcudart || echo "❌ libcudart not found（致命）"
-  '
+  RT="$(docker inspect join-mlnode-308-1 --format '{{.HostConfig.Runtime}}' 2>/dev/null || echo "")"
+  if [ -z "$RT" ] || [ "$RT" = "<no value>" ]; then RT="(empty)"; fi
+  echo "Runtime: $RT"
+
+  echo "DeviceRequests:"
+  if need_jq; then
+    docker inspect join-mlnode-308-1 --format '{{json .HostConfig.DeviceRequests}}' \
+      | jq '.' || true
+  else
+    docker inspect join-mlnode-308-1 --format '{{json .HostConfig.DeviceRequests}}' || true
+  fi
+
+  echo "Inside container /dev/nvidia*:"
+  docker exec join-mlnode-308-1 sh -lc 'ls -l /dev/nvidia* 2>/dev/null || echo "NO /dev/nvidia*"' || true
+
 else
-  warn "mlnode 容器未运行"
+  warn "join-mlnode-308-1 容器未运行"
 fi
 echo
+
+# ============================================================
+# 实时：只看你关心的“需求日志”，并做时间戳去重/限行
+# ============================================================
+if [ "$FOLLOW_MODE" -eq 1 ]; then
+  echo "===== 8) FOLLOW: join-mlnode-308-1 关键需求日志（同一时间戳最多2行） ====="
+  echo "按 Ctrl+C 退出"
+  docker logs -f --timestamps join-mlnode-308-1 2>&1 \
+  | egrep --line-buffered --color=always -i \
+    '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
+  | awk '
+      {
+        # docker --timestamps 典型：2025-..Z <msg...>
+        ts=$1
+        if (ts != last_ts) { last_ts=ts; cnt=0 }
+        if (cnt < 2) { print; cnt++ }
+      }'
+  exit 0
+fi
 
 # ============================================================
 # 动态结论（必须基于前面的判断变量）
