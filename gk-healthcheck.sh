@@ -332,33 +332,32 @@ echo "===== mlnode recent critical logs (snapshot) ====="
 
 docker logs --timestamps join-mlnode-308-1 2>&1 \
 | egrep --color=always -i \
-  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500 Internal Server Error|400 Bad Request|Error sending generated batch|poc-batches|Sending generated batch' \
+  '/api/v1/pow/init/(generate|validate)|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|Error sending generated batch|Sending generated batch' \
 | awk '
   BEGIN{
     red="\033[1;31m"; yel="\033[1;33m"; cyn="\033[1;36m"; rst="\033[0m";
     seen_send=0;
   }
-  /200 OK/ {next}
+
   {
     ts=$1
-    msg=$0
-    sub(/^[0-9TZ:.\-]+[ ]+/, "", msg)
+    line=$0
 
-    if (msg ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
-      if (seen_send==1) next
+    # 1️⃣ 只对 Sending generated batch 去重（只一次）
+    if (line ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
+      if (seen_send) next
       seen_send=1
     }
 
-    if (seen[msg]++) next
-
+    # 2️⃣ 同一时间戳最多 2 行（只在爆错时起作用）
     if (ts != last_ts) { last_ts=ts; cnt=0 }
     if (cnt >= 2) next
     cnt++
 
-    line=$0
-    if (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500|vLLM process exited prematurely|Failed to start VLLM)/i) {
+    # 3️⃣ 颜色分级（不改变匹配范围）
+    if (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500)/i) {
       print red "❌ " rst line
-    } else if (line ~ /(Error sending generated batch|poc-batches)/i) {
+    } else if (line ~ /(Error sending generated batch)/i) {
       print yel "⚠️  " rst line
     } else {
       print cyn "ℹ️  " rst line
