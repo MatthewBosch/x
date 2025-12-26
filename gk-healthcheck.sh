@@ -244,11 +244,35 @@ echo
 # ============================================================
 # GPU
 # ============================================================
-echo "===== 7) GPU ====="
+echo "===== 7) GPU / CUDA ====="
+
+# --- Driver & GPU ---
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu --format=csv,noheader || true
+  echo "[Driver / GPU]"
+  nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu \
+    --format=csv,noheader || true
 else
-  warn "未检测到 nvidia-smi"
+  warn "未检测到 nvidia-smi（GPU 驱动缺失）"
+fi
+echo
+
+# --- CUDA Toolkit (host) ---
+echo "[CUDA Toolkit - host]"
+if command -v nvcc >/dev/null 2>&1; then
+  nvcc --version | sed -n '1,10p'
+else
+  warn "宿主机未检测到 nvcc"
+fi
+echo
+
+# --- CUDA Runtime (mlnode) ---
+echo "[CUDA Runtime - mlnode]"
+if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
+  docker exec join-mlnode-308-1 sh -lc '
+    ldconfig -p 2>/dev/null | grep libcudart || echo "❌ libcudart not found（致命）"
+  '
+else
+  warn "mlnode 容器未运行"
 fi
 echo
 
