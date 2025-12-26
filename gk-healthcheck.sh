@@ -319,8 +319,8 @@ if [ "$FOLLOW_MODE" -eq 1 ]; then
   | egrep --line-buffered --color=always -i \
     '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
   | awk '
+      /200 OK/ {next}
       {
-        # docker --timestamps 典型：2025-..Z <msg...>
         ts=$1
         if (ts != last_ts) { last_ts=ts; cnt=0 }
         if (cnt < 2) { print; cnt++ }
@@ -334,8 +334,13 @@ docker logs \
   --timestamps \
   join-mlnode-308-1 2>&1 \
 | egrep -i \
-  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
+  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500 Internal Server Error|400 Bad Request|Error sending generated batch|poc-batches|vLLM process exited prematurely|Failed to start VLLM' \
+| egrep -i \
+  'NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500|400|Error sending generated batch|poc-batches|vLLM process exited prematurely|Failed to start VLLM|/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate' \
 | awk '
+    # 只保留“错误/PoC相关”的行：避免 200 OK 混进来
+    /200 OK/ {next}
+
     {
       ts=$1
       if (ts != last_ts) { last_ts=ts; cnt=0 }
