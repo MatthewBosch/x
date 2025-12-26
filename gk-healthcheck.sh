@@ -340,24 +340,28 @@ docker logs --timestamps join-mlnode-308-1 2>&1 \
   }
 
   {
-    ts=$1
     line=$0
+    ts=$1
 
-    # 1️⃣ 只对 Sending generated batch 去重（只一次）
+    # 1️⃣ Sending generated batch：只输出第一次
     if (line ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
       if (seen_send) next
       seen_send=1
     }
 
-    # 2️⃣ 同一时间戳最多 2 行（只在爆错时起作用）
-    if (ts != last_ts) { last_ts=ts; cnt=0 }
-    if (cnt >= 2) next
-    cnt++
+    # 2️⃣ 仅对 ERROR / GPU / 500 类日志做“同时间戳限 2 行”
+    is_err = (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500|ERROR)/i)
 
-    # 3️⃣ 颜色分级（不改变匹配范围）
+    if (is_err) {
+      if (ts != last_err_ts) { last_err_ts=ts; err_cnt=0 }
+      if (err_cnt >= 2) next
+      err_cnt++
+    }
+
+    # 3️⃣ 颜色高亮（不影响匹配）
     if (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500)/i) {
       print red "❌ " rst line
-    } else if (line ~ /(Error sending generated batch)/i) {
+    } else if (line ~ /Error sending generated batch/i) {
       print yel "⚠️  " rst line
     } else {
       print cyn "ℹ️  " rst line
