@@ -34,7 +34,7 @@ PUBLIC_URL="${PUBLIC_URL:-}"
 if [ -z "$PUBLIC_IP" ] && [ -n "$PUBLIC_URL" ]; then
   PUBLIC_IP="$(echo "$PUBLIC_URL" | sed -E 's#^https?://([^:/]+).*#\1#')"
 fi
-[ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(curl -s ifconfig.me || true)"
+[ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(curl -s --max-time 3 ifconfig.me || true)"
 
 FOLLOW_MODE=0
 if [[ "${1:-}" == "--follow" ]]; then
