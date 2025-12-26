@@ -281,26 +281,32 @@ fi
 echo
 
 # --- 你要的：mlnode 容器 runtime / dev nodes / DeviceRequests ---
-echo "[mlnode runtime & GPU visibility]"
+echo "===== mlnode GPU runtime check ====="
+
 if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
-  RT="$(docker inspect join-mlnode-308-1 --format '{{.HostConfig.Runtime}}' 2>/dev/null || echo "")"
-  if [ -z "$RT" ] || [ "$RT" = "<no value>" ]; then RT="(empty)"; fi
-  echo "Runtime: $RT"
-
-  echo "DeviceRequests:"
   if need_jq; then
-    docker inspect join-mlnode-308-1 --format '{{json .HostConfig.DeviceRequests}}' \
-      | jq '.' || true
+    GPU_OK="$(
+      docker inspect join-mlnode-308-1 \
+        --format '{{json .HostConfig.DeviceRequests}}' \
+      | jq -e '
+          .[]?
+          | select(.Driver=="nvidia")
+          | select(.Capabilities[]? | index(["gpu"]))
+        ' >/dev/null 2>&1 && echo 1 || echo 0
+    )"
+
+    if [ "$GPU_OK" = "1" ]; then
+      ok 'DeviceRequests: Driver="nvidia", Capabilities=["gpu"]'
+    else
+      bad 'DeviceRequests 未包含 Driver="nvidia" + gpu'
+    fi
   else
-    docker inspect join-mlnode-308-1 --format '{{json .HostConfig.DeviceRequests}}' || true
+    warn "缺少 jq，无法解析 DeviceRequests"
   fi
-
-  echo "Inside container /dev/nvidia*:"
-  docker exec join-mlnode-308-1 sh -lc 'ls -l /dev/nvidia* 2>/dev/null || echo "NO /dev/nvidia*"' || true
-
 else
-  warn "join-mlnode-308-1 容器未运行"
+  bad "join-mlnode-308-1 未运行"
 fi
+
 echo
 
 # ============================================================
@@ -321,6 +327,23 @@ if [ "$FOLLOW_MODE" -eq 1 ]; then
       }'
   exit 0
 fi
+
+echo "===== mlnode recent critical logs (snapshot) ====="
+
+docker logs \
+  --timestamps \
+  join-mlnode-308-1 2>&1 \
+| egrep -i \
+  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
+| awk '
+    {
+      ts=$1
+      if (ts != last_ts) { last_ts=ts; cnt=0 }
+      if (cnt < 2) { print; cnt++ }
+    }
+  ' || true
+
+echo
 
 # ============================================================
 # 动态结论（必须基于前面的判断变量）
