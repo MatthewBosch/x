@@ -11,7 +11,6 @@ need_jq(){ command -v jq >/dev/null 2>&1; }
 TIME_OK=1
 CHAIN_OK=1
 PORT_OK=1
-VERSION_OK=1
 
 # 端口/HTTP 检测 helper：非 2xx 视为失败
 check_http(){
@@ -55,7 +54,7 @@ echo "===== 2) 端口监听（宿主机） ====="
 echo
 
 # ============================================================
-# 链状态（26657）
+# 链状态（26657） + catching_up 检查 + 你要的字段输出
 # ============================================================
 echo "===== 3) 链同步状态（26657）====="
 if ! need_jq; then
@@ -67,13 +66,15 @@ else
     CHAIN_OK=0
   fi
 
-  SYNC_JSON="$(curl -sS http://127.0.0.1:26657/status | jq '.result.sync_info' 2>/dev/null || true)"
-  if [ -z "$SYNC_JSON" ]; then
+  SYNC_BRIEF="$(curl -sS http://127.0.0.1:26657/status \
+    | jq '.result.sync_info | {latest_block_height, catching_up, latest_block_time}' 2>/dev/null || true)"
+
+  if [ -z "$SYNC_BRIEF" ]; then
     bad "无法解析 26657/status 的 sync_info"
     CHAIN_OK=0
   else
-    echo "$SYNC_JSON"
-    catching="$(echo "$SYNC_JSON" | jq -r '.catching_up')"
+    echo "$SYNC_BRIEF"
+    catching="$(echo "$SYNC_BRIEF" | jq -r '.catching_up')"
     if [ "$catching" = "false" ]; then
       ok "catching_up=false（已同步）"
     else
@@ -123,7 +124,8 @@ echo
 
 # --- 链时间（latest_block_time） ---
 if need_jq && command -v python3 >/dev/null 2>&1; then
-  CHAIN_TIME="$(curl -sS http://127.0.0.1:26657/status | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
+  CHAIN_TIME="$(curl -sS http://127.0.0.1:26657/status \
+    | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
   if [ -n "$CHAIN_TIME" ]; then
     echo "[CHAIN] latest_block_time: $CHAIN_TIME"
     CHAIN_EPOCH="$(python3 - "$CHAIN_TIME" <<'PY'
@@ -143,7 +145,6 @@ PY
       ok "链最新块时间差 ${abs}s（正常范围内）"
     elif [ "$abs" -le 120 ]; then
       warn "链最新块时间差 ${abs}s（可能网络/出块间隔/轻微延迟）"
-      # 不把 TIME_OK 置 0，避免误报；真正同步用 catching_up 判定
     else
       warn "链最新块时间差 ${abs}s（若高度不增长/ catching_up=true 才算异常）"
     fi
@@ -183,26 +184,9 @@ done
 echo
 
 # ============================================================
-# 版本检查
-# ============================================================
-echo "===== 5) 二进制版本 ====="
-if need_jq; then
-  ver="$(curl -sS http://127.0.0.1:26657/abci_info | jq -r '.result.response.version // empty' 2>/dev/null || true)"
-  echo "version: ${ver:-<empty>}"
-  case "$ver" in
-    2371460|0.2.6-post2) ok "版本正确" ;;
-    *) bad "版本不匹配（需要 2371460 或 0.2.6-post2）"; VERSION_OK=0 ;;
-  esac
-else
-  warn "无 jq，跳过版本判定"
-  VERSION_OK=0
-fi
-echo
-
-# ============================================================
 # Admin API（输出模型、权重等；并生成 PoC 汇总）
 # ============================================================
-echo "===== 6) Admin API ====="
+echo "===== 5) Admin API ====="
 POC_YES=0
 POC_WEIGHT=-1
 
@@ -223,7 +207,6 @@ if need_jq; then
           epoch_ml_nodes:(.state.epoch_ml_nodes|to_entries|map({model:.key,poc_weight:(.value.poc_weight//-1),timeslot:.value.timeslot_allocation}))
         }'
 
-    # 计算 PoC（按你定义：无 weight => NO, weight=-1）
     POC_WEIGHT="$(echo "$ADMIN_JSON" | jq -r '
       .[0] as $x
       | ( ($x.state.epoch_models|keys)[0] // ($x.node.models|keys)[0] ) as $m
@@ -246,7 +229,7 @@ echo
 # ============================================================
 # 推理入口 / 可达性（5050 / 8000）
 # ============================================================
-echo "===== 7) 推理入口可达性 ====="
+echo "===== 6) 推理入口可达性 ====="
 check_http "5050 /health" "http://127.0.0.1:5050/health" || true
 check_http "5050 /v1/models" "http://127.0.0.1:5050/v1/models" || true
 
@@ -261,7 +244,7 @@ echo
 # ============================================================
 # GPU
 # ============================================================
-echo "===== 8) GPU ====="
+echo "===== 7) GPU ====="
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu --format=csv,noheader || true
 else
@@ -273,14 +256,13 @@ echo
 # 动态结论（必须基于前面的判断变量）
 # ============================================================
 echo "===== 结论 ====="
-if [ "$TIME_OK" -eq 1 ] && [ "$CHAIN_OK" -eq 1 ] && [ "$PORT_OK" -eq 1 ] && [ "$VERSION_OK" -eq 1 ]; then
-  echo "✔ 时间一致 + 链同步 + 端口正常 + 版本正确"
+if [ "$TIME_OK" -eq 1 ] && [ "$CHAIN_OK" -eq 1 ] && [ "$PORT_OK" -eq 1 ]; then
+  echo "✔ 时间一致 + 链同步 + 端口正常"
 else
   echo "⚠️ 节点存在问题："
   [ "$TIME_OK" -ne 1 ] && echo "  - 时间检查未通过（宿主/公网/容器漂移）"
   [ "$CHAIN_OK" -ne 1 ] && echo "  - 链同步异常（catching_up!=false 或 26657 不通）"
   [ "$PORT_OK" -ne 1 ] && echo "  - 端口/可达性异常（5050/8000/9200/容器接口）"
-  [ "$VERSION_OK" -ne 1 ] && echo "  - 二进制版本不符合要求"
 fi
 echo
 
