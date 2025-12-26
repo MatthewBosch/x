@@ -330,23 +330,40 @@ fi
 
 echo "===== mlnode recent critical logs (snapshot) ====="
 
-docker logs \
-  --timestamps \
-  join-mlnode-308-1 2>&1 \
-| egrep -i \
-  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500 Internal Server Error|400 Bad Request|Error sending generated batch|poc-batches|vLLM process exited prematurely|Failed to start VLLM' \
-| egrep -i \
-  'NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500|400|Error sending generated batch|poc-batches|vLLM process exited prematurely|Failed to start VLLM|/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate' \
+docker logs --timestamps join-mlnode-308-1 2>&1 \
+| egrep --color=always -i \
+  '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|500 Internal Server Error|400 Bad Request|Error sending generated batch|poc-batches|Sending generated batch' \
 | awk '
-    # 只保留“错误/PoC相关”的行：避免 200 OK 混进来
-    /200 OK/ {next}
+  BEGIN{
+    red="\033[1;31m"; yel="\033[1;33m"; cyn="\033[1;36m"; rst="\033[0m";
+    seen_send=0;
+  }
+  /200 OK/ {next}
+  {
+    ts=$1
+    msg=$0
+    sub(/^[0-9TZ:.\-]+[ ]+/, "", msg)
 
-    {
-      ts=$1
-      if (ts != last_ts) { last_ts=ts; cnt=0 }
-      if (cnt < 2) { print; cnt++ }
+    if (msg ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
+      if (seen_send==1) next
+      seen_send=1
     }
-  ' || true
+
+    if (seen[msg]++) next
+
+    if (ts != last_ts) { last_ts=ts; cnt=0 }
+    if (cnt >= 2) next
+    cnt++
+
+    line=$0
+    if (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500|vLLM process exited prematurely|Failed to start VLLM)/i) {
+      print red "❌ " rst line
+    } else if (line ~ /(Error sending generated batch|poc-batches)/i) {
+      print yel "⚠️  " rst line
+    } else {
+      print cyn "ℹ️  " rst line
+    }
+  }'
 
 echo
 
