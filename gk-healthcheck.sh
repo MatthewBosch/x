@@ -308,7 +308,29 @@ else
 fi
 
 echo
+# --- mlnode: nvidia-smi / nvcc inside container ---
+echo "===== mlnode GPU tools inside container ====="
 
+if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
+  echo "[mlnode] nvidia-smi"
+  if docker exec join-mlnode-308-1 sh -lc 'command -v nvidia-smi >/dev/null 2>&1'; then
+    docker exec join-mlnode-308-1 nvidia-smi || warn "mlnode 内 nvidia-smi 执行失败"
+  else
+    warn "mlnode 内未找到 nvidia-smi"
+  fi
+  echo
+
+  echo "[mlnode] nvcc --version"
+  if docker exec join-mlnode-308-1 sh -lc 'command -v nvcc >/dev/null 2>&1'; then
+    docker exec join-mlnode-308-1 nvcc --version || warn "mlnode 内 nvcc 执行失败"
+  else
+    warn "mlnode 内未找到 nvcc（正常：大多数 inference / PoC 镜像不带 nvcc）"
+  fi
+else
+  bad "join-mlnode-308-1 未运行，无法检查 nvidia-smi / nvcc"
+fi
+
+echo
 # ============================================================
 # 实时：只看你关心的“需求日志”，并做时间戳去重/限行
 # ============================================================
