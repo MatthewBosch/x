@@ -333,37 +333,28 @@ echo "===== mlnode recent critical logs (snapshot) ====="
 docker logs \
   --timestamps \
   join-mlnode-308-1 2>&1 \
-| egrep --color=always -i '/api/v1/pow/init/(generate|validate)|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|Error sending generated batch|Sending generated batch' \
+| egrep -i \
+  '/api/v1/pow/init/(generate|validate)|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
 | awk '
-  function is_iso_ts(x){
-    return (x ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$/)
+  # 1️⃣ 先无条件输出 generate / validate
+  /\/api\/v1\/pow\/init\/(generate|validate)/ {
+    print
+    next
   }
 
-  BEGIN{ seen_send=0; cur_ts="NO_TS"; err_cnt=0 }
-
+  # 2️⃣ 剩下的一定是 error 类 → 按时间戳限 2 行
   {
-    line=$0
-    first=$1
-    if (is_iso_ts(first)) {
-      if (first != cur_ts) { cur_ts=first; err_cnt=0 }
+    ts=$1
+    if (ts != last_ts) {
+      last_ts=ts
+      cnt=0
     }
-
-    if (line ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
-      if (seen_send) next
-      seen_send=1
+    if (cnt < 2) {
       print
-      next
+      cnt++
     }
-
-    is_err = (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|Error sending generated batch| 500 | 500$|ERROR|Exception|Traceback)/i)
-
-    if (is_err) {
-      if (err_cnt >= 2) next
-      err_cnt++
-    }
-
-    print
-  }'
+  }
+'
 
 echo
 
