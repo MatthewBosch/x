@@ -330,27 +330,26 @@ fi
 
 echo "===== mlnode recent critical logs (snapshot) ====="
 
-docker logs --timestamps join-mlnode-308-1 2>&1 \
+docker logs \
+  --timestamps \
+  join-mlnode-308-1 2>&1 \
 | egrep --color=always -i \
   '/api/v1/pow/init/(generate|validate)|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|Error sending generated batch|Sending generated batch' \
 | awk '
-  BEGIN{
-    red="\033[1;31m"; yel="\033[1;33m"; cyn="\033[1;36m"; rst="\033[0m";
-    seen_send=0;
-  }
+  BEGIN{ seen_send=0 }
 
   {
     line=$0
     ts=$1
 
-    # 1️⃣ Sending generated batch：只输出第一次
     if (line ~ /Sending generated batch to http:\/\/api:9100\/v1\/poc-batches/i) {
       if (seen_send) next
       seen_send=1
+      print
+      next
     }
 
-    # 2️⃣ 仅对 ERROR / GPU / 500 类日志做“同时间戳限 2 行”
-    is_err = (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500|ERROR)/i)
+    is_err = (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|Error sending generated batch| 500 | 500$|ERROR)/i)
 
     if (is_err) {
       if (ts != last_err_ts) { last_err_ts=ts; err_cnt=0 }
@@ -358,14 +357,7 @@ docker logs --timestamps join-mlnode-308-1 2>&1 \
       err_cnt++
     }
 
-    # 3️⃣ 颜色高亮（不影响匹配）
-    if (line ~ /(NotEnoughGPUResources|CUDA is not available|no GPU support|Internal Server Error|500)/i) {
-      print red "❌ " rst line
-    } else if (line ~ /Error sending generated batch/i) {
-      print yel "⚠️  " rst line
-    } else {
-      print cyn "ℹ️  " rst line
-    }
+    print
   }'
 
 echo
