@@ -27,6 +27,24 @@ check_http(){
   fi
 }
 
+# ============================================================
+# 链状态（26657） helper：优先宿主机 -> 回退到 node 容器
+# ============================================================
+get_chain_status_json() {
+  # 1) host (如果你未来映射了 127.0.0.1:26657)
+  if curl -fsS --max-time 3 http://127.0.0.1:26657/status >/dev/null 2>&1; then
+    curl -fsS --max-time 5 http://127.0.0.1:26657/status
+    return 0
+  fi
+
+  # 2) container (你现在的实际情况)
+  if docker ps --format '{{.Names}}' | grep -qx node; then
+    docker exec node sh -lc 'wget -qO- http://127.0.0.1:26657/status' 2>/dev/null && return 0
+  fi
+
+  return 1
+}
+
 # ===== 公网信息 =====
 PUBLIC_IP="${PUBLIC_IP:-}"
 PUBLIC_URL="${PUBLIC_URL:-}"
@@ -54,52 +72,54 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,200p'
 echo
 
 echo "===== 2) 端口监听（宿主机） ====="
+# NOTE: 这里刻意不检查 26657，因为你的 26657 在 node 容器内，并不要求宿主机监听。
 (ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) \
- | egrep ':(5050|8080|26657|5000|5001|9200|8000)\b' || true
+ | egrep ':(5050|8080|5000|5001|9200|8000)\b' || true
 echo
 
 # ============================================================
 # 链状态（26657） + catching_up 检查 + 高亮输出
 # ============================================================
 echo "===== 3) 链同步状态（26657）====="
+STATUS_JSON=""
 if ! need_jq; then
   warn "未安装 jq：sudo apt-get update && sudo apt-get install -y jq"
   CHAIN_OK=0
 else
-  if ! check_http "26657 /status" "http://127.0.0.1:26657/status"; then
-    CHAIN_OK=0
-  fi
+  STATUS_JSON="$(get_chain_status_json || true)"
 
-  SYNC_BRIEF_RAW="$(curl -sS http://127.0.0.1:26657/status \
-    | jq '.result.sync_info | {latest_block_height, catching_up, latest_block_time}' 2>/dev/null || true)"
-
-  if [ -z "$SYNC_BRIEF_RAW" ]; then
-    bad "无法解析 26657/status 的 sync_info"
+  if [ -z "${STATUS_JSON:-}" ]; then
+    bad "无法获取链 /status（宿主机和 node 容器都不可达）"
     CHAIN_OK=0
   else
-    # 高亮 JSON（catching_up=false 绿色，否则红色）
-    catching="$(echo "$SYNC_BRIEF_RAW" | jq -r '.catching_up' 2>/dev/null || echo "")"
-    height="$(echo "$SYNC_BRIEF_RAW"   | jq -r '.latest_block_height' 2>/dev/null || echo "")"
-    btime="$(echo "$SYNC_BRIEF_RAW"    | jq -r '.latest_block_time' 2>/dev/null || echo "")"
+    SYNC_BRIEF_RAW="$(echo "$STATUS_JSON" | jq '.result.sync_info | {latest_block_height, catching_up, latest_block_time}' 2>/dev/null || true)"
 
-    # 颜色
-    C_KEY="\033[1;36m"   # cyan
-    C_OK="\033[1;32m"    # green
-    C_BAD="\033[1;31m"   # red
-    C_RST="\033[0m"
-
-    echo -e "{"
-    echo -e "  ${C_KEY}\"latest_block_height\"${C_RST}: \"${C_OK}${height}${C_RST}\","
-    if [ "$catching" = "false" ]; then
-      echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_OK}${catching}${C_RST},"
-      ok "catching_up=false（已同步）"
-    else
-      echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_BAD}${catching}${C_RST},"
-      bad "catching_up=${catching:-<empty>}（未同步/追块中）"
+    if [ -z "$SYNC_BRIEF_RAW" ]; then
+      bad "无法解析 /status 的 sync_info"
       CHAIN_OK=0
+    else
+      catching="$(echo "$SYNC_BRIEF_RAW" | jq -r '.catching_up' 2>/dev/null || echo "")"
+      height="$(echo "$SYNC_BRIEF_RAW"   | jq -r '.latest_block_height' 2>/dev/null || echo "")"
+      btime="$(echo "$SYNC_BRIEF_RAW"    | jq -r '.latest_block_time' 2>/dev/null || echo "")"
+
+      C_KEY="\033[1;36m"   # cyan
+      C_OK="\033[1;32m"    # green
+      C_BAD="\033[1;31m"   # red
+      C_RST="\033[0m"
+
+      echo -e "{"
+      echo -e "  ${C_KEY}\"latest_block_height\"${C_RST}: \"${C_OK}${height}${C_RST}\","
+      if [ "$catching" = "false" ]; then
+        echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_OK}${catching}${C_RST},"
+        ok "catching_up=false（已同步）"
+      else
+        echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_BAD}${catching}${C_RST},"
+        bad "catching_up=${catching:-<empty>}（未同步/追块中）"
+        CHAIN_OK=0
+      fi
+      echo -e "  ${C_KEY}\"latest_block_time\"${C_RST}: \"${C_OK}${btime}${C_RST}\""
+      echo -e "}"
     fi
-    echo -e "  ${C_KEY}\"latest_block_time\"${C_RST}: \"${C_OK}${btime}${C_RST}\""
-    echo -e "}"
   fi
 fi
 echo
@@ -141,8 +161,14 @@ fi
 echo
 
 if need_jq && command -v python3 >/dev/null 2>&1; then
-  CHAIN_TIME="$(curl -sS http://127.0.0.1:26657/status \
+  # 复用刚才拿到的 STATUS_JSON；如果为空再尝试获取一次
+  if [ -z "${STATUS_JSON:-}" ]; then
+    STATUS_JSON="$(get_chain_status_json || true)"
+  fi
+
+  CHAIN_TIME="$(echo "${STATUS_JSON:-}" \
     | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
+
   if [ -n "$CHAIN_TIME" ]; then
     echo "[CHAIN] latest_block_time: $CHAIN_TIME"
     CHAIN_EPOCH="$(python3 - "$CHAIN_TIME" <<'PY'
@@ -165,7 +191,7 @@ PY
       warn "链最新块时间差 ${abs}s（若高度不增长/ catching_up=true 才算异常）"
     fi
   else
-    warn "无法获取链 latest_block_time"
+    warn "无法获取链 latest_block_time（/status 不可用或解析失败）"
   fi
 else
   warn "缺 jq 或 python3，跳过链时间对比"
@@ -389,7 +415,7 @@ if [ "$TIME_OK" -eq 1 ] && [ "$CHAIN_OK" -eq 1 ] && [ "$PORT_OK" -eq 1 ]; then
 else
   echo "⚠️ 节点存在问题："
   [ "$TIME_OK" -ne 1 ] && echo "  - 时间检查未通过（宿主/公网/容器漂移）"
-  [ "$CHAIN_OK" -ne 1 ] && echo "  - 链同步异常（catching_up!=false 或 26657 不通）"
+  [ "$CHAIN_OK" -ne 1 ] && echo "  - 链同步异常（catching_up!=false 或无法获取 /status）"
   [ "$PORT_OK" -ne 1 ] && echo "  - 端口/可达性异常（5050/8000/9200/容器接口）"
 fi
 echo
