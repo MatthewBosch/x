@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# ===== user-provided addresses / endpoints =====
+COLD_ADDR="${COLD_ADDR:-}"                 # 必填：gonka1... 冷钱包 acc 地址（面板/链上 validator 信息用它查）
+NODE_RPC="${NODE_RPC:-http://node1.gonka.ai:8000/chain-rpc/}"
+REST="${REST:-http://node1.gonka.ai:8000/chain-api}"
 
+if [[ -z "$COLD_ADDR" ]]; then
+  echo "❌ COLD_ADDR is required (cold account bech32 address, e.g. gonka10dn...)"
+  echo "   Usage: COLD_ADDR=gonka1... bash <(curl -fsSL <raw>)"
+  exit 2
+fi
 ok(){ echo -e "✅ $*"; }
 warn(){ echo -e "⚠️  $*"; }
 bad(){ echo -e "❌ $*"; }
