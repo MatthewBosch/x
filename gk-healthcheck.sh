@@ -156,26 +156,22 @@ echo "PUBLIC_IP:  ${PUBLIC_IP:-<unknown>}"
 echo "PUBLIC_URL: ${PUBLIC_URL:-<unset>}"
 echo
 
-# ============================================================
-# 0.5) 冷钱包地址（会在此处要求输入 keyring passphrase）
-# ============================================================
 echo "===== 0.5) 冷钱包地址（用于面板 staking 查询）====="
-COLD_ACC_ADDR="$(get_cold_account_addr || true)"
-if [ -z "${COLD_ACC_ADDR:-}" ]; then
-  bad "无法从 keyring 获取冷钱包地址（COLD_KEY_NAME=$COLD_KEY_NAME）。后续 panel/staking 检查会跳过。"
-  CONS_OK=0
+
+# 1) 优先用外部传入的 COLD_ADDR（你现在就是这么跑的）
+if [[ -n "${COLD_ADDR:-}" ]]; then
+  ok "使用外部传入 COLD_ADDR=$COLD_ADDR"
 else
-  ok "cold_account_address=$COLD_ACC_ADDR"
+  # 2) 否则才尝试从 keyring 里解析（需要交互密码）
+  COLD_KEY_NAME="${COLD_KEY_NAME:-gonka-account-key}"
+  if COLD_ADDR="$(./inferenced keys show "$COLD_KEY_NAME" --keyring-backend file -a 2>/dev/null)"; then
+    ok "从 keyring 获取冷钱包地址：$COLD_ADDR (name=$COLD_KEY_NAME)"
+  else
+    bad "无法从 keyring 获取冷钱包地址（COLD_KEY_NAME=$COLD_KEY_NAME）。后续 panel/staking 检查会跳过。"
+    COLD_ADDR=""
+  fi
 fi
-echo
 
-echo "===== 1) Docker 容器 ====="
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | sed -n '1,200p'
-echo
-
-echo "===== 2) 端口监听（宿主机） ====="
-(ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null) \
- | egrep ':(5050|8080|5000|5001|9200|8000)\b' || true
 echo
 
 # ============================================================
