@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 # ===== user-provided addresses / endpoints =====
 COLD_ADDR="${COLD_ADDR:-}"                 # 必填：gonka1... 冷钱包 acc 地址（面板/链上 validator 信息用它查）
 NODE_RPC="${NODE_RPC:-http://node1.gonka.ai:8000/chain-rpc/}"
 REST="${REST:-http://node1.gonka.ai:8000/chain-api}"
+PUBLIC_URL="${PUBLIC_URL:-}"
+PUBLIC_IP="${PUBLIC_IP:-}"
+
+# 可选：你的 inference participant 地址（不填就跳过 participant.validator_key 对比）
+PARTICIPANT_ADDR="${PARTICIPANT_ADDR:-}"
 
 if [[ -z "$COLD_ADDR" ]]; then
-  echo "❌ COLD_ADDR is required (cold account bech32 address, e.g. gonka10dn...)"
+  echo "❌ COLD_ADDR is required (cold account bech32 address, e.g. gonka1...)"
   echo "   Usage: COLD_ADDR=gonka1... bash <(curl -fsSL <raw>)"
   exit 2
 fi
+
 ok(){ echo -e "✅ $*"; }
 warn(){ echo -e "⚠️  $*"; }
 bad(){ echo -e "❌ $*"; }
@@ -22,18 +29,6 @@ CHAIN_OK=1
 PORT_OK=1
 CONS_OK=1
 CALLBACK_OK=1
-
-# =======================
-# 可配置项（用环境变量覆盖）
-# =======================
-NODE_RPC="${NODE_RPC:-http://node1.gonka.ai:8000/chain-rpc/}"
-REST="${REST:-http://node1.gonka.ai:8000/chain-api}"
-PUBLIC_URL="${PUBLIC_URL:-}"
-PUBLIC_IP="${PUBLIC_IP:-}"
-COLD_KEY_NAME="${COLD_KEY_NAME:-gonka-account-key}"
-
-# 你的 inference participant 地址（可不填：不填就只做 staking/panel + node/tmkms/local）
-PARTICIPANT_ADDR="${PARTICIPANT_ADDR:-}"
 
 # 端口/HTTP 检测 helper：非 2xx 视为失败
 check_http(){
@@ -58,11 +53,9 @@ get_chain_status_json() {
     curl -fsS --max-time 5 http://127.0.0.1:26657/status
     return 0
   fi
-
   if docker ps --format '{{.Names}}' | grep -qx node; then
     docker exec node sh -lc 'wget -qO- http://127.0.0.1:26657/status' 2>/dev/null && return 0
   fi
-
   return 1
 }
 
@@ -70,38 +63,32 @@ get_chain_status_json() {
 # Consensus Key 相关 helper
 # ============================================================
 get_node_status_pubkey_b64(){
-  # comet/tendermint /status validator_info.pub_key.value
-  if docker ps --format '{{.Names}}' | grep -qx node; then
-    docker exec node sh -lc 'apk add --no-cache curl jq >/dev/null 2>&1 || true; curl -s http://127.0.0.1:26657/status | jq -r ".result.validator_info.pub_key.value"' 2>/dev/null || true
+  local js=""
+  js="$(get_chain_status_json 2>/dev/null || true)"
+  if [[ -n "${js:-}" ]] && need_jq; then
+    echo "$js" | jq -r '.result.validator_info.pub_key.value // empty' 2>/dev/null || true
   else
-    # 如果宿主机映射了 26657
-    curl -s --max-time 5 http://127.0.0.1:26657/status | jq -r ".result.validator_info.pub_key.value" 2>/dev/null || true
+    echo ""
   fi
 }
 
 get_local_privval_pubkey_b64(){
   # node 容器里残留的 priv_validator_key.json (应当 UNUSED)
-  if docker ps --format '{{.Names}}' | grep -qx node; then
-    docker exec node sh -lc 'apk add --no-cache jq >/dev/null 2>&1 || true; test -f /root/.inference/config/priv_validator_key.json && jq -r ".pub_key.value" /root/.inference/config/priv_validator_key.json || true' 2>/dev/null || true
+  if docker ps --format '{{.Names}}' | grep -qx node && need_jq; then
+    docker exec node sh -lc 'test -f /root/.inference/config/priv_validator_key.json && cat /root/.inference/config/priv_validator_key.json || true' 2>/dev/null \
+      | jq -r '.pub_key.value // empty' 2>/dev/null || true
   else
-    true
+    echo ""
   fi
 }
 
 get_tmkms_pubkey_b64(){
-  # 优先从 tmkms logs 抓 “Pubkey: ... "key": "...."”
+  # 只从 logs 抓，避免误读 softsign 文件内容
   local k=""
   if docker ps --format '{{.Names}}' | grep -qx tmkms; then
-    k="$(docker logs --tail 400 tmkms 2>/dev/null \
+    k="$(docker logs --tail 600 tmkms 2>/dev/null \
       | sed -n 's/.*"key":[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | tail -n 1)"
-    if [ -n "${k:-}" ]; then
-      echo "$k"
-      return 0
-    fi
-
-    # 兜底：直接 cat softsign key（仅当它就是 base64 公钥；很多实现不是明文 pubkey，这里不强求）
-    k="$(docker exec tmkms sh -lc 'test -f /root/.tmkms/secrets/priv_validator_key.softsign && cat /root/.tmkms/secrets/priv_validator_key.softsign || true' 2>/dev/null | head -n 1 | tr -d "\r\n" || true)"
+      | tail -n 1 | tr -d '\r\n')"
     echo "$k"
     return 0
   fi
@@ -109,8 +96,7 @@ get_tmkms_pubkey_b64(){
 }
 
 get_chain_participant_validator_key_b64(){
-  # chain inference module participant.validator_key（你之前用的是 show-participant）
-  if [ -n "${PARTICIPANT_ADDR:-}" ]; then
+  if [[ -n "${PARTICIPANT_ADDR:-}" ]] && need_jq; then
     ./inferenced --node "$NODE_RPC" --chain-id gonka-mainnet \
       query inference show-participant "$PARTICIPANT_ADDR" -o json 2>/dev/null \
       | jq -r '.participant.validator_key // empty' 2>/dev/null || true
@@ -120,30 +106,25 @@ get_chain_participant_validator_key_b64(){
 }
 
 get_panel_consensus_pubkey_b64(){
-  # “面板”= staking delegator-validators <cold-key-address> 的 consensus_pubkey.value
+  # “面板”= staking delegator-validators <cold acc address> 的 consensus_pubkey.value
   local cold_acc="$1"
-  ./inferenced query staking delegator-validators "$cold_acc" \
-    --node "$NODE_RPC" --chain-id gonka-mainnet -o json 2>/dev/null \
-  | jq -r '.validators[0].consensus_pubkey.value // empty' 2>/dev/null || true
-}
-
-get_cold_account_addr(){
-  # 这里会触发 keyring passphrase（你要的：脚本开头输入密码）
-  ./inferenced keys show "$COLD_KEY_NAME" \
-    --keyring-backend file \
-    -a 2>/dev/null
+  if need_jq; then
+    ./inferenced query staking delegator-validators "$cold_acc" \
+      --node "$NODE_RPC" --chain-id gonka-mainnet -o json 2>/dev/null \
+    | jq -r '.validators[0].consensus_pubkey.value // empty' 2>/dev/null || true
+  else
+    echo ""
+  fi
 }
 
 # ===== 公网信息 =====
-if [ -z "$PUBLIC_IP" ] && [ -n "$PUBLIC_URL" ]; then
+if [[ -z "${PUBLIC_IP:-}" ]] && [[ -n "${PUBLIC_URL:-}" ]]; then
   PUBLIC_IP="$(echo "$PUBLIC_URL" | sed -E 's#^https?://([^:/]+).*#\1#')"
 fi
-[ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(curl -s --max-time 3 ifconfig.me || true)"
+[[ -z "${PUBLIC_IP:-}" ]] && PUBLIC_IP="$(curl -s --max-time 3 ifconfig.me || true)"
 
 FOLLOW_MODE=0
-if [[ "${1:-}" == "--follow" ]]; then
-  FOLLOW_MODE=1
-fi
+[[ "${1:-}" == "--follow" ]] && FOLLOW_MODE=1
 
 echo "===== 0) 基础信息 ====="
 echo "HOST TIME:  $(date -Is)"
@@ -151,36 +132,15 @@ echo "UTC TIME:   $(date -u -Is)"
 echo "HOSTNAME:   $(hostname)"
 echo "NODE_RPC:   $NODE_RPC"
 echo "REST:       $REST"
-echo "COLD_KEY:   $COLD_KEY_NAME"
+echo "COLD_ADDR:  $COLD_ADDR"
 echo "PUBLIC_IP:  ${PUBLIC_IP:-<unknown>}"
 echo "PUBLIC_URL: ${PUBLIC_URL:-<unset>}"
 echo
 
-echo "===== 0.5) 冷钱包地址（用于面板 staking 查询）====="
-
-# 1) 优先用外部传入的 COLD_ADDR（你现在就是这么跑的）
-if [[ -n "${COLD_ADDR:-}" ]]; then
-  ok "使用外部传入 COLD_ADDR=$COLD_ADDR"
-else
-  # 2) 否则才尝试从 keyring 里解析（需要交互密码）
-  COLD_KEY_NAME="${COLD_KEY_NAME:-gonka-account-key}"
-  if COLD_ADDR="$(./inferenced keys show "$COLD_KEY_NAME" --keyring-backend file -a 2>/dev/null)"; then
-    ok "从 keyring 获取冷钱包地址：$COLD_ADDR (name=$COLD_KEY_NAME)"
-  else
-    bad "无法从 keyring 获取冷钱包地址（COLD_KEY_NAME=$COLD_KEY_NAME）。后续 panel/staking 检查会跳过。"
-    COLD_ADDR=""
-  fi
-fi
-
-echo
-
-# ============================================================
-# 2.5) API 回调地址（容器内实际生效）
-# ============================================================
 echo "===== 2.5) API 回调地址（api 容器 env） ====="
 if docker ps --format '{{.Names}}' | grep -qx api; then
-  CALLBACK_LINE="$(docker exec -it api sh -lc 'env | egrep -i "DAPI_API__POC_CALLBACK_URL|POC_CALLBACK|CALLBACK|WEBHOOK|URL" | sort' 2>/dev/null || true)"
-  if [ -n "${CALLBACK_LINE:-}" ]; then
+  CALLBACK_LINE="$(docker exec api sh -lc 'env | egrep -i "DAPI_API__POC_CALLBACK_URL|POC_CALLBACK|CALLBACK|WEBHOOK|DAPI_API__PUBLIC_URL" | sort' 2>/dev/null || true)"
+  if [[ -n "${CALLBACK_LINE:-}" ]]; then
     ok "api callback env:"
     echo "$CALLBACK_LINE" | sed 's/^/  /'
   else
@@ -193,9 +153,6 @@ else
 fi
 echo
 
-# ============================================================
-# 3) 链同步状态（26657）
-# ============================================================
 echo "===== 3) 链同步状态（26657）====="
 STATUS_JSON=""
 if ! need_jq; then
@@ -203,68 +160,41 @@ if ! need_jq; then
   CHAIN_OK=0
 else
   STATUS_JSON="$(get_chain_status_json || true)"
-
-  if [ -z "${STATUS_JSON:-}" ]; then
+  if [[ -z "${STATUS_JSON:-}" ]]; then
     bad "无法获取链 /status（宿主机和 node 容器都不可达）"
     CHAIN_OK=0
   else
     SYNC_BRIEF_RAW="$(echo "$STATUS_JSON" | jq '.result.sync_info | {latest_block_height, catching_up, latest_block_time}' 2>/dev/null || true)"
-
-    if [ -z "$SYNC_BRIEF_RAW" ]; then
+    if [[ -z "$SYNC_BRIEF_RAW" ]]; then
       bad "无法解析 /status 的 sync_info"
       CHAIN_OK=0
     else
       catching="$(echo "$SYNC_BRIEF_RAW" | jq -r '.catching_up' 2>/dev/null || echo "")"
       height="$(echo "$SYNC_BRIEF_RAW"   | jq -r '.latest_block_height' 2>/dev/null || echo "")"
       btime="$(echo "$SYNC_BRIEF_RAW"    | jq -r '.latest_block_time' 2>/dev/null || echo "")"
+      echo "$SYNC_BRIEF_RAW"
 
-      C_KEY="\033[1;36m"
-      C_OK="\033[1;32m"
-      C_BAD="\033[1;31m"
-      C_RST="\033[0m"
-
-      echo -e "{"
-      echo -e "  ${C_KEY}\"latest_block_height\"${C_RST}: \"${C_OK}${height}${C_RST}\","
-      if [ "$catching" = "false" ]; then
-        echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_OK}${catching}${C_RST},"
+      if [[ "$catching" == "false" ]]; then
         ok "catching_up=false（已同步）"
       else
-        echo -e "  ${C_KEY}\"catching_up\"${C_RST}: ${C_BAD}${catching}${C_RST},"
         bad "catching_up=${catching:-<empty>}（未同步/追块中）"
         CHAIN_OK=0
       fi
-      echo -e "  ${C_KEY}\"latest_block_time\"${C_RST}: \"${C_OK}${btime}${C_RST}\""
-      echo -e "}"
     fi
   fi
 fi
 echo
 
-# ============================================================
-# 3.5) Consensus Key 对齐检查（本地/容器/链上/面板）
-# ============================================================
 echo "===== 3.5) Consensus Key 对齐检查（本地/容器/链上/面板） ====="
 if ! need_jq; then
   warn "缺 jq，跳过 consensus key 全量比对"
   CONS_OK=0
 else
-  # (B) node /status
   NODE_STATUS_KEY="$(get_node_status_pubkey_b64 | tr -d '\r\n' || true)"
-
-  # (C) tmkms pubkey
   TMKMS_KEY="$(get_tmkms_pubkey_b64 | tr -d '\r\n' || true)"
-
-  # (D) node 容器残留 priv_validator_key.json
   LOCAL_PRIVVAL_KEY="$(get_local_privval_pubkey_b64 | tr -d '\r\n' || true)"
-
-  # (A) chain participant.validator_key（可选）
   CHAIN_PARTICIPANT_KEY="$(get_chain_participant_validator_key_b64 | tr -d '\r\n' || true)"
-
-  # (P) panel staking delegator-validators -> consensus_pubkey.value
-  PANEL_KEY=""
-  if [ -n "${COLD_ACC_ADDR:-}" ]; then
-    PANEL_KEY="$(get_panel_consensus_pubkey_b64 "$COLD_ACC_ADDR" | tr -d '\r\n' || true)"
-  fi
+  PANEL_KEY="$(get_panel_consensus_pubkey_b64 "$COLD_ADDR" | tr -d '\r\n' || true)"
 
   echo "=== (A) chain participant validator_key (optional) ==="
   echo "${CHAIN_PARTICIPANT_KEY:-<skipped/unset>}"
@@ -272,26 +202,22 @@ else
   echo "=== (B) node /status consensus pubkey ==="
   echo "${NODE_STATUS_KEY:-<empty>}"
   echo
-  echo "=== (C) tmkms consensus pubkey (from softsign/logs) ==="
+  echo "=== (C) tmkms consensus pubkey (from logs) ==="
   echo "${TMKMS_KEY:-<empty>}"
   echo
   echo "=== (D) leftover priv_validator_key.json pubkey (should be UNUSED) ==="
   echo "${LOCAL_PRIVVAL_KEY:-<empty>}"
   echo
   echo "=== (P) panel consensus_pubkey (staking delegator-validators) ==="
-  echo "${PANEL_KEY:-<skipped/unavailable>}"
+  echo "${PANEL_KEY:-<empty>}"
   echo
 
-  # 规则：核心必须一致：node /status == tmkms == chain participant(若提供)。
-  # panel 是旧 validator 的 staking consensus_pubkey；如果它不等于当前 tmkms，那说明你现在这台签名身份不属于那个旧 validator。
-  # leftover priv_validator_key.json 不要求一致（反而不一致更符合 “unused/残留”），但若它等于 node/status 则提示你可能没禁用本地签名。
   CORE_OK=1
-
-  if [ -z "${NODE_STATUS_KEY:-}" ] || [ -z "${TMKMS_KEY:-}" ]; then
+  if [[ -z "${NODE_STATUS_KEY:-}" || -z "${TMKMS_KEY:-}" ]]; then
     bad "node/status 或 tmkms pubkey 为空，无法判断对齐"
     CORE_OK=0
   else
-    if [ "$NODE_STATUS_KEY" = "$TMKMS_KEY" ]; then
+    if [[ "$NODE_STATUS_KEY" == "$TMKMS_KEY" ]]; then
       ok "核心一致：node/status == tmkms"
     else
       bad "核心不一致：node/status != tmkms"
@@ -299,43 +225,35 @@ else
     fi
   fi
 
-  if [ -n "${CHAIN_PARTICIPANT_KEY:-}" ] && [ -n "${NODE_STATUS_KEY:-}" ]; then
-    if [ "$CHAIN_PARTICIPANT_KEY" = "$NODE_STATUS_KEY" ]; then
+  if [[ -n "${CHAIN_PARTICIPANT_KEY:-}" && -n "${NODE_STATUS_KEY:-}" ]]; then
+    if [[ "$CHAIN_PARTICIPANT_KEY" == "$NODE_STATUS_KEY" ]]; then
       ok "参与者登记一致：chain participant validator_key == node/status"
     else
-      warn "参与者登记不一致：chain participant validator_key != node/status（你可能需要重新 submit-new-participant 或 participant 不是这个地址）"
+      warn "参与者登记不一致：chain participant validator_key != node/status"
       CORE_OK=0
     fi
   fi
 
-  # panel 对比（不作为 core pass/fail，但给出明确结论）
-  if [ -n "${PANEL_KEY:-}" ] && [ -n "${NODE_STATUS_KEY:-}" ]; then
-    if [ "$PANEL_KEY" = "$NODE_STATUS_KEY" ]; then
+  if [[ -n "${PANEL_KEY:-}" && -n "${NODE_STATUS_KEY:-}" ]]; then
+    if [[ "$PANEL_KEY" == "$NODE_STATUS_KEY" ]]; then
       ok "面板(staking)一致：panel consensus_pubkey == node/status"
     else
-      warn "面板(staking)不一致：panel consensus_pubkey != node/status（这通常表示：你当前签名身份不是那个旧 validator 的共识公钥）"
-      # 这不是 “运行失败”，但会导致你纠结的“面板 key 不改”问题
+      warn "面板(staking)不一致：panel consensus_pubkey != node/status（旧 validator 的共识公钥没变/你现在签名身份不是它）"
     fi
   fi
 
-  # leftover 提示
-  if [ -n "${LOCAL_PRIVVAL_KEY:-}" ] && [ -n "${NODE_STATUS_KEY:-}" ]; then
-    if [ "$LOCAL_PRIVVAL_KEY" = "$NODE_STATUS_KEY" ]; then
-      warn "残留 priv_validator_key.json == node/status：你可能还在使用本地 privval（检查 config.toml 是否仍走 priv_validator_key_file，而不是 priv_validator_laddr 远程签名）"
+  if [[ -n "${LOCAL_PRIVVAL_KEY:-}" && -n "${NODE_STATUS_KEY:-}" ]]; then
+    if [[ "$LOCAL_PRIVVAL_KEY" == "$NODE_STATUS_KEY" ]]; then
+      warn "残留 priv_validator_key.json == node/status：可能仍在用本地 privval（检查 config.toml 的 priv_validator_laddr / priv_validator_key_file）"
     else
       ok "残留 priv_validator_key.json 与当前共识 pubkey 不同（符合“残留/unused”预期）"
     fi
   fi
 
-  if [ "$CORE_OK" -ne 1 ]; then
-    CONS_OK=0
-  fi
+  [[ "$CORE_OK" -ne 1 ]] && CONS_OK=0
 fi
 echo
 
-# ============================================================
-# 时间对比（宿主 / 公网 / 链 / 容器）
-# ============================================================
 echo "===== 4) 时间对比（宿主 / 公网 / 链 / 容器）====="
 HOST_EPOCH="$(date -u +%s)"
 echo "[HOST] epoch=$HOST_EPOCH"
@@ -343,7 +261,7 @@ echo "[HOST] epoch=$HOST_EPOCH"
 HTTP_DATE="$(curl -fsSI --max-time 5 https://google.com \
   | awk 'BEGIN{IGNORECASE=1}/^Date:/{sub(/^[Dd]ate:[ ]*/,"");print;exit}' || true)"
 
-if [ -n "$HTTP_DATE" ] && command -v python3 >/dev/null 2>&1; then
+if [[ -n "$HTTP_DATE" ]] && command -v python3 >/dev/null 2>&1; then
   echo "[HTTP] Date: $HTTP_DATE"
   REMOTE_EPOCH="$(python3 - "$HTTP_DATE" <<'PY'
 import email.utils,sys
@@ -354,9 +272,9 @@ PY
   drift=$((HOST_EPOCH - REMOTE_EPOCH))
   abs=${drift#-}
   echo "→ Drift(host-remote): ${drift}s"
-  if [ "$abs" -le 5 ]; then
+  if [[ "$abs" -le 5 ]]; then
     ok "公网时间 OK"
-  elif [ "$abs" -le 30 ]; then
+  elif [[ "$abs" -le 30 ]]; then
     warn "公网时间漂移 ${abs}s"
     TIME_OK=0
   else
@@ -370,14 +288,9 @@ fi
 echo
 
 if need_jq && command -v python3 >/dev/null 2>&1; then
-  if [ -z "${STATUS_JSON:-}" ]; then
-    STATUS_JSON="$(get_chain_status_json || true)"
-  fi
-
-  CHAIN_TIME="$(echo "${STATUS_JSON:-}" \
-    | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
-
-  if [ -n "$CHAIN_TIME" ]; then
+  [[ -z "${STATUS_JSON:-}" ]] && STATUS_JSON="$(get_chain_status_json || true)"
+  CHAIN_TIME="$(echo "${STATUS_JSON:-}" | jq -r '.result.sync_info.latest_block_time // empty' 2>/dev/null || true)"
+  if [[ -n "$CHAIN_TIME" ]]; then
     echo "[CHAIN] latest_block_time: $CHAIN_TIME"
     CHAIN_EPOCH="$(python3 - "$CHAIN_TIME" <<'PY'
 import sys,re,datetime
@@ -391,10 +304,10 @@ PY
     drift=$((HOST_EPOCH - CHAIN_EPOCH))
     abs=${drift#-}
     echo "→ Drift(host-chain): ${drift}s"
-    if [ "$abs" -le 30 ]; then
+    if [[ "$abs" -le 30 ]]; then
       ok "链最新块时间差 ${abs}s（正常范围内）"
-    elif [ "$abs" -le 120 ]; then
-      warn "链最新块时间差 ${abs}s（可能网络/出块间隔/轻微延迟）"
+    elif [[ "$abs" -le 120 ]]; then
+      warn "链最新块时间差 ${abs}s（可能轻微延迟）"
     else
       warn "链最新块时间差 ${abs}s（若高度不增长/ catching_up=true 才算异常）"
     fi
@@ -411,13 +324,13 @@ for c in api node inference join-mlnode-308-1 join-api-1 join-inference-1 tmkms;
   if docker ps --format '{{.Names}}' | grep -qx "$c"; then
     CE="$(docker exec "$c" sh -lc 'date -u +%s 2>/dev/null || date +%s 2>/dev/null' 2>/dev/null || true)"
     CT="$(docker exec "$c" sh -lc 'date -u -Is 2>/dev/null || date -Is 2>/dev/null' 2>/dev/null || true)"
-    if [ -n "$CE" ]; then
+    if [[ -n "$CE" ]]; then
       drift=$((HOST_EPOCH - CE))
       abs=${drift#-}
       echo "[$c] ${CT:-<no-date>} drift=${drift}s"
-      if [ "$abs" -le 5 ]; then
+      if [[ "$abs" -le 5 ]]; then
         ok "$c 时间 OK"
-      elif [ "$abs" -le 30 ]; then
+      elif [[ "$abs" -le 30 ]]; then
         warn "$c 时间漂移 ${abs}s"
         TIME_OK=0
       else
@@ -425,48 +338,52 @@ for c in api node inference join-mlnode-308-1 join-api-1 join-inference-1 tmkms;
         TIME_OK=0
       fi
     else
-      warn "$c 无法读取时间（镜像无 date？）"
+      warn "$c 无法读取时间"
       TIME_OK=0
     fi
   fi
 done
 echo
 
-# ============================================================
-# Admin API（输出模型、权重等；并生成 PoC 汇总）
-# ============================================================
 echo "===== 5) Admin API ====="
 POC_YES=0
 POC_WEIGHT=-1
 
 if need_jq; then
-  ADMIN_JSON="$(curl -sS http://127.0.0.1:9200/admin/v1/nodes 2>/dev/null || true)"
-  if [ -z "$ADMIN_JSON" ]; then
-    bad "9200/admin/v1/nodes 无响应"
+  # 先拿 http code，方便区分 404/拒绝/没监听
+  ADMIN_CODE="$(curl -sS -o /tmp/admin_nodes.json -w "%{http_code}" --max-time 3 http://127.0.0.1:9200/admin/v1/nodes || echo 000)"
+  if [[ "$ADMIN_CODE" != 2* ]]; then
+    bad "9200/admin/v1/nodes 异常：http_code=$ADMIN_CODE"
     PORT_OK=0
   else
-    echo "$ADMIN_JSON" | jq '.[]
-      | {
-          node_id:.node.id,
-          host:.node.host,
-          current_status:.state.current_status,
-          intended_status:.state.intended_status,
-          models:(.node.models|keys),
-          epoch_models:(.state.epoch_models|keys),
-          epoch_ml_nodes:(.state.epoch_ml_nodes|to_entries|map({model:.key,poc_weight:(.value.poc_weight//-1),timeslot:.value.timeslot_allocation}))
-        }'
-
-    POC_WEIGHT="$(echo "$ADMIN_JSON" | jq -r '
-      .[0] as $x
-      | ( ($x.state.epoch_models|keys)[0] // ($x.node.models|keys)[0] ) as $m
-      | ($x.state.epoch_ml_nodes[$m].poc_weight // -1)
-    ' 2>/dev/null || echo -1)"
-
-    if [ "${POC_WEIGHT:- -1}" -gt 0 ] 2>/dev/null; then
-      POC_YES=1
+    ADMIN_JSON="$(cat /tmp/admin_nodes.json || true)"
+    if [[ -z "$ADMIN_JSON" ]]; then
+      bad "9200/admin/v1/nodes 返回空 body"
+      PORT_OK=0
     else
-      POC_YES=0
-      POC_WEIGHT=-1
+      echo "$ADMIN_JSON" | jq '.[]
+        | {
+            node_id:.node.id,
+            host:.node.host,
+            current_status:.state.current_status,
+            intended_status:.state.intended_status,
+            models:(.node.models|keys),
+            epoch_models:(.state.epoch_models|keys),
+            epoch_ml_nodes:(.state.epoch_ml_nodes|to_entries|map({model:.key,poc_weight:(.value.poc_weight//-1),timeslot:.value.timeslot_allocation}))
+          }'
+
+      POC_WEIGHT="$(echo "$ADMIN_JSON" | jq -r '
+        .[0] as $x
+        | ( ($x.state.epoch_models|keys)[0] // ($x.node.models|keys)[0] ) as $m
+        | ($x.state.epoch_ml_nodes[$m].poc_weight // -1)
+      ' 2>/dev/null || echo -1)"
+
+      if [[ "${POC_WEIGHT:- -1}" -gt 0 ]] 2>/dev/null; then
+        POC_YES=1
+      else
+        POC_YES=0
+        POC_WEIGHT=-1
+      fi
     fi
   fi
 else
@@ -475,14 +392,10 @@ else
 fi
 echo
 
-# ============================================================
-# 推理入口 / 可达性（5050 / 8000）
-# ============================================================
 echo "===== 6) 推理入口可达性 ====="
 check_http "5050 /health" "http://127.0.0.1:5050/health" || true
 check_http "5050 /v1/models" "http://127.0.0.1:5050/v1/models" || true
-
-if [ -n "${PUBLIC_IP:-}" ]; then
+if [[ -n "${PUBLIC_IP:-}" ]]; then
   check_http "PUBLIC :8000 /health" "http://${PUBLIC_IP}:8000/health" || true
 else
   warn "未能确定 PUBLIC_IP，跳过外网 :8000 检查"
@@ -490,121 +403,21 @@ else
 fi
 echo
 
-# ============================================================
-# GPU
-# ============================================================
-echo "===== 7) GPU / Docker Runtime（重点看 join-mlnode-308-1） ====="
-
-if command -v nvidia-smi >/dev/null 2>&1; then
-  echo "[Driver / GPU]"
-  nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,utilization.gpu,temperature.gpu \
-    --format=csv,noheader || true
-else
-  warn "未检测到 nvidia-smi（GPU 驱动缺失或此机无 GPU）"
-fi
-echo
-
-echo "[CUDA Toolkit - host]"
-if command -v nvcc >/dev/null 2>&1; then
-  nvcc --version | sed -n '1,10p'
-else
-  warn "宿主机未检测到 nvcc"
-fi
-echo
-
-echo "===== mlnode GPU runtime check ====="
-if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
-  if need_jq; then
-    GPU_OK="$(
-      docker inspect join-mlnode-308-1 \
-        --format '{{json .HostConfig.DeviceRequests}}' \
-      | jq -e '
-          .[]?
-          | select(.Driver=="nvidia")
-          | select(.Capabilities[]? | index(["gpu"]))
-        ' >/dev/null 2>&1 && echo 1 || echo 0
-    )"
-    if [ "$GPU_OK" = "1" ]; then
-      ok 'DeviceRequests: Driver="nvidia", Capabilities=["gpu"]'
-    else
-      bad 'DeviceRequests 未包含 Driver="nvidia" + gpu'
-    fi
-  else
-    warn "缺少 jq，无法解析 DeviceRequests"
-  fi
-else
-  bad "join-mlnode-308-1 未运行"
-fi
-
-echo
-echo "===== mlnode GPU tools inside container ====="
-if docker ps --format '{{.Names}}' | grep -qx join-mlnode-308-1; then
-  echo "[mlnode] nvidia-smi"
-  if docker exec join-mlnode-308-1 sh -lc 'command -v nvidia-smi >/dev/null 2>&1'; then
-    docker exec join-mlnode-308-1 nvidia-smi || warn "mlnode 内 nvidia-smi 执行失败"
-  else
-    warn "mlnode 内未找到 nvidia-smi"
-  fi
-  echo
-
-  echo "[mlnode] nvcc --version"
-  if docker exec join-mlnode-308-1 sh -lc 'command -v nvcc >/dev/null 2>&1'; then
-    docker exec join-mlnode-308-1 nvcc --version || warn "mlnode 内 nvcc 执行失败"
-  else
-    warn "mlnode 内未找到 nvcc（正常：大多数 inference / PoC 镜像不带 nvcc）"
-  fi
-else
-  bad "join-mlnode-308-1 未运行，无法检查 nvidia-smi / nvcc"
-fi
-
-echo
-# ============================================================
-# 实时：只看你关心的“需求日志”，并做时间戳去重/限行
-# ============================================================
-if [ "$FOLLOW_MODE" -eq 1 ]; then
-  echo "===== 8) FOLLOW: join-mlnode-308-1 关键需求日志（同一时间戳最多2行） ====="
-  echo "按 Ctrl+C 退出"
-  docker logs -f --timestamps join-mlnode-308-1 2>&1 \
-  | egrep --line-buffered --color=always -i \
-    '/api/v1/pow/init/(generate|validate)|/api/v1/pow/validate|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
-  | awk '
-      /200 OK/ {next}
-      {
-        ts=$1
-        if (ts != last_ts) { last_ts=ts; cnt=0 }
-        if (cnt < 2) { print; cnt++ }
-      }'
-  exit 0
-fi
-
-echo "===== mlnode recent critical logs (snapshot) ====="
-docker logs --timestamps join-mlnode-308-1 2>&1 \
-| egrep -i \
-  '/api/v1/pow/init/(generate|validate)|NotEnoughGPUResources|no GPU support|CUDA is not available|Internal Server Error|vLLM process exited prematurely|Failed to start VLLM' \
-| awk '
-  /\/api\/v1\/pow\/init\/(generate|validate)/ { print; next }
-  { ts=$1; if (ts != last_ts) { last_ts=ts; cnt=0 } if (cnt < 2) { print; cnt++ } }
-'
-echo
-
-# ============================================================
-# 动态结论（必须基于前面的判断变量）
-# ============================================================
 echo "===== 结论 ====="
-if [ "$TIME_OK" -eq 1 ] && [ "$CHAIN_OK" -eq 1 ] && [ "$PORT_OK" -eq 1 ] && [ "$CONS_OK" -eq 1 ]; then
+if [[ "$TIME_OK" -eq 1 && "$CHAIN_OK" -eq 1 && "$PORT_OK" -eq 1 && "$CONS_OK" -eq 1 ]]; then
   echo "✔ 时间一致 + 链同步 + 端口正常 + 共识 key 核心对齐"
 else
   echo "⚠️ 节点存在问题："
-  [ "$TIME_OK" -ne 1 ] && echo "  - 时间检查未通过（宿主/公网/容器漂移）"
-  [ "$CHAIN_OK" -ne 1 ] && echo "  - 链同步异常（catching_up!=false 或无法获取 /status）"
-  [ "$PORT_OK" -ne 1 ] && echo "  - 端口/可达性异常（5050/8000/9200/容器接口）"
-  [ "$CONS_OK" -ne 1 ] && echo "  - 共识 key 核心不一致（node/status vs tmkms vs chain participant(如启用)）"
-  [ "$CALLBACK_OK" -ne 1 ] && echo "  - api 回调地址未能确认（容器 env 未发现/容器未运行）"
+  [[ "$TIME_OK" -ne 1 ]] && echo "  - 时间检查未通过"
+  [[ "$CHAIN_OK" -ne 1 ]] && echo "  - 链同步异常"
+  [[ "$PORT_OK" -ne 1 ]] && echo "  - 端口/可达性异常"
+  [[ "$CONS_OK" -ne 1 ]] && echo "  - 共识 key 核心不一致"
+  [[ "$CALLBACK_OK" -ne 1 ]] && echo "  - api 回调地址未能确认"
 fi
 echo
 
 echo "===== PoC ====="
-if [ "${POC_YES:-0}" -eq 1 ]; then
+if [[ "${POC_YES:-0}" -eq 1 ]]; then
   echo "PoC: YES"
   echo "PoC weight: ${POC_WEIGHT}"
 else
