@@ -1,0 +1,17 @@
+# 删除之前下的 x86_64 旧包和解压目录
+cd ~
+rm -rf cake_wallet/
+rm -f Cake_Wallet_v6.1.2_Linux.tar.xz
+
+# 更新软件源 + 装 Flatpak
+sudo apt update
+sudo apt install -y flatpak
+
+# 加 Flathub 仓库
+sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+# 装 Cake Wallet（这一步最慢，5-15 分钟，下 600MB-1GB）
+flatpak install flathub com.cakewallet.CakeWallet -y
+
+# 启动（必须在 VM 桌面的终端里跑，SSH 里跑不出 GUI）
+flatpak run com.cakewallet.CakeWallet
